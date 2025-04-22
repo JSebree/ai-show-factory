@@ -1,24 +1,35 @@
-name: Build‑and‑publish show
+name: Build‑and‑publish show
 on:
-  workflow_dispatch:          # run by hand
+  workflow_dispatch:
   schedule:
-    - cron:  '0 13 * * *'     # 1:00 pm UTC daily
+    - cron: '0 13 * * *'
+
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install deps
         run: pip install -r requirements.txt
+
+      - name: Install ffmpeg   # optional but recommended
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Write Google creds
+        run: |
+          echo '${{ secrets.GOOGLE_CREDS }}' > $HOME/gcreds.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/gcreds.json" >> $GITHUB_ENV
+
       - name: Run pipeline
         env:
-          OPENAI_API_KEY:   ${{ secrets.OPENAI_KEY }}
-          ELEVEN_KEY:       ${{ secrets.ELEVEN_KEY }}
-          BUZZ_KEY:         ${{ secrets.BUZZ_KEY }}
-          GSHEET_ID:        ${{ secrets.GSHEET_ID }}
-          GOOGLE_CREDS:     ${{ secrets.GOOGLE_CREDS }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_KEY }}
+          ELEVEN_KEY:     ${{ secrets.ELEVEN_KEY }}
+          BUZZ_KEY:       ${{ secrets.BUZZ_KEY }}
+          GSHEET_ID:      ${{ secrets.GSHEET_ID }}
         run: python run_pipeline.py
