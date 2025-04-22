@@ -1,0 +1,23 @@
+name: Build‑and‑publish show
+on:
+  workflow_dispatch:          # run by hand
+  schedule:
+    - cron:  '0 13 * * *'     # 1:00 pm UTC daily
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Run pipeline
+        env:
+          OPENAI_API_KEY:   ${{ secrets.OPENAI_KEY }}
+          ELEVEN_KEY:       ${{ secrets.ELEVEN_KEY }}
+          BUZZ_KEY:         ${{ secrets.BUZZ_KEY }}
+          GSHEET_ID:        ${{ secrets.GSHEET_ID }}
+        run: python run_pipeline.py
