@@ -1,29 +1,38 @@
+# podcast_uploader.py
+
 import os
 import requests
 
 def upload(mp3_path: str, title: str, description: str) -> dict:
     """
-    Upload an MP3 file to Buzzsprout via their uploads subdomain.
-    
-    Expects the following environment variables to be set:
-      - BUZZ_ID   : your numeric podcast ID (e.g. "2489052")
-      - BUZZ_KEY  : your Buzzsprout API token
+    Upload an MP3 file to Buzzsprout via their dedicated uploads subdomain.
 
-    Returns the JSON response from Buzzsprout on success.
-    Raises an HTTPError with details on failure.
+    Requires:
+      • BUZZ_ID   (your numeric podcast ID, e.g. "2489052")
+      • BUZZ_KEY  (your Buzzsprout API token)
+
+    Returns the JSON response on success (HTTP 201).
+    Raises an exception with details on failure.
     """
+    # 1) Read and validate env vars
     buzz_id = os.getenv("BUZZ_ID")
     buzz_key = os.getenv("BUZZ_KEY")
-    if not buzz_id or not buzz_key:
-        raise RuntimeError("BUZZ_ID and BUZZ_KEY must be set in the environment")
+    if not buzz_id:
+        raise RuntimeError("Environment variable BUZZ_ID is not set")
+    if not buzz_key:
+        raise RuntimeError("Environment variable BUZZ_KEY is not set")
 
-    url = f"https://uploads.buzzsprout.com/v2/{BUZZ_ID}/episodes"
+    # 2) Build the upload URL
+    url = f"https://uploads.buzzsprout.com/v2/{buzz_id}/episodes"
+
+    # 3) Prepare headers
     headers = {
-        "Authorization": f"Token token={BUZZ_KEY}",
+        "Authorization": f"Token token={buzz_key}",
         "User-Agent":    "ai-show-factory/1.0",
         "Accept":        "application/json",
     }
 
+    # 4) Perform the POST with the MP3 file
     with open(mp3_path, "rb") as audio_file:
         response = requests.post(
             url,
@@ -32,9 +41,10 @@ def upload(mp3_path: str, title: str, description: str) -> dict:
             data={"title": title, "description": description},
         )
 
-    # If it’s not 201 Created, print and raise
+    # 5) Check for success (201 Created) and debug if not
     if response.status_code != 201:
         print("Buzzsprout returned:", response.status_code, response.text[:500])
         response.raise_for_status()
 
+    # 6) Return the parsed JSON response
     return response.json()
