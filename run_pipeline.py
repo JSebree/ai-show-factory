@@ -5,7 +5,8 @@ from podcast_uploader import upload
 from pydub import AudioSegment
 
 # 1) Read next topic from Google Sheet
-gc = gspread.service_account()                # uses creds in GOOGLE_APPLICATION_CREDENTIALS
+svc_key = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]   # path we injected
+gc = gspread.service_account(filename=svc_key)                # uses creds in GOOGLE_APPLICATION_CREDENTIALS
 sheet = gc.open_by_key(os.getenv("GSHEET_ID")).sheet1
 topic = sheet.row_values(2)[0]                # cell A2 holds newest idea
 
