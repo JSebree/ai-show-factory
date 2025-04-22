@@ -10,7 +10,7 @@ def upload(mp3_path, title, description):
                 # your Buzzsprout API token
                 "Authorization": f"Token token={os.getenv('BUZZ_KEY')}",
                 # Cloudflare won’t challenge if you present a UA
-                "User‑Agent":    "ai-show-factory/1.0",
+                "User-Agent":    "ai-show-factory/1.0",
                 # explicitly ask for JSON, not HTML
                 "Accept":        "application/json",
             },
