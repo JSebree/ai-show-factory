@@ -20,4 +20,5 @@ jobs:
           ELEVEN_KEY:       ${{ secrets.ELEVEN_KEY }}
           BUZZ_KEY:         ${{ secrets.BUZZ_KEY }}
           GSHEET_ID:        ${{ secrets.GSHEET_ID }}
+          GOOGLE_CREDS:     ${{ secrets.GOOGLE_CREDS }}
         run: python run_pipeline.py
