@@ -36,4 +36,5 @@ jobs:
           BUZZ_KEY:       ${{ secrets.BUZZ_KEY }}
           GSHEET_ID:      ${{ secrets.GSHEET_ID }}
           ELEVEN_VOICE_ID: ${{ secrets.ELEVEN_VOICE_ID }}
+          BUZZ_ID:        ${{ secrets.BUZZ_ID }}
         run: python run_pipeline.py
