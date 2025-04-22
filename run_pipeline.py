@@ -20,10 +20,13 @@ open("script.json", "w").write(str(script))
 tts(script["full_script"], "voice.wav")
 
 # 4) Concatenate intro + voice + outro, normalise loudness
-python try: intro = AudioSegment.from_mp3("assets/intro.mp3") 
-  outro = AudioSegment.from_mp3("assets/outro.mp3") 
-except FileNotFoundError: print("Intro/outro not found – skipping.") 
-intro = outro = AudioSegment.silent(duration=0)
+try:
+    intro = AudioSegment.from_mp3("assets/intro.mp3")
+    outro = AudioSegment.from_mp3("assets/outro.mp3")
+except FileNotFoundError:
+    print("Intro/outro not found — skipping.")
+    intro = outro = AudioSegment.silent(duration=0)
+
 voice = AudioSegment.from_wav("voice.wav")
 final = intro + voice + outro
 final.export("episode.mp3", format="mp3", bitrate="128k")
