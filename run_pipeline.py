@@ -18,6 +18,7 @@ script = make_script(topic)
 open("script.json", "w").write(str(script))
 
 # 3) TTS voice‑over
+voice_id = os.getenv("ELEVEN_VOICE_ID")
 tts(script["full_script"], "voice.mp3", voice_id=voice_id)
 
 # 4) Concatenate intro + voice + outro, normalise loudness
