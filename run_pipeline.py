@@ -9,6 +9,7 @@ svc_key = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]   # path we injected
 gc = gspread.service_account(filename=svc_key)                # uses creds in GOOGLE_APPLICATION_CREDENTIALS
 sheet = gc.open_by_key(os.getenv("GSHEET_ID")).sheet1
 topic = sheet.row_values(2)[0]                # cell A2 holds newest idea
+voice_id = os.getenv("ELEVEN_VOICE_ID")
 
 print("Topic picked:", topic)
 
@@ -17,7 +18,7 @@ script = make_script(topic)
 open("script.json", "w").write(str(script))
 
 # 3) TTS voice‑over
-tts(script["full_script"], "voice.wav")
+tts(script["full_script"], "voice.mp3", voice_id=voice_id)
 
 # 4) Concatenate intro + voice + outro, normalise loudness
 try:
@@ -27,7 +28,7 @@ except FileNotFoundError:
     print("Intro/outro not found — skipping.")
     intro = outro = AudioSegment.silent(duration=0)
 
-voice = AudioSegment.from_wav("voice.wav")
+voice = AudioSegment.from_file("voice.mp3", format="mp3")
 final = intro + voice + outro
 final.export("episode.mp3", format="mp3", bitrate="128k")
 
