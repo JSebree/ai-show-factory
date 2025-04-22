@@ -14,6 +14,7 @@ def tts(text: str, out_path: str, voice_id="29vD33N1CtxCmqQRPOHJ"):
         "model_id": "eleven_turbo_v2",
         "text": text,
         "voice_settings": {"stability": 0.4, "similarity_boost": 1},
+        "voice_format": "wav"
     }
 
     # Call the API
