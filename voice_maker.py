@@ -4,7 +4,7 @@ import requests
 
 ELEVEN_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
-def tts(text: str, out_path: str, voice_id="YourVoiceIDHere"):
+def tts(text: str, out_path: str, voice_id="29vD33N1CtxCmqQRPOHJ"):
     # Build headers and body
     headers = {
         "xi-api-key": os.getenv("ELEVEN_KEY"),
