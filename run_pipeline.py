@@ -7,7 +7,7 @@ from voice_maker import tts
 from llm_writer import make_script
 # … other imports …
 
-BUCKET = "jc-ai-podcast"
+BUCKET = "jc-ai-podcast-bucket"
 s3 = boto3.client("s3")
 
 def publish_episode(episode_mp3: str, metadata: dict):
