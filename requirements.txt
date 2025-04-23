@@ -3,4 +3,5 @@ google-api-python-client>=2.116
 gspread>=5.12
 elevenlabs==1.1.0
 pydub>=0.25
-requests
+cloudscraper==1.2.60
+requests>=2.0
