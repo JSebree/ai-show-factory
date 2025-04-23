@@ -23,7 +23,7 @@ def upload(mp3_path: str, title: str, description: str) -> dict:
         raise RuntimeError("Environment variable BUZZ_KEY is not set")
 
     # 2) Build the upload URL
-    url = f"https://uploads.buzzsprout.com/v2/{BUZZ_ID}/episodes"
+    url = f"https://api.buzzsprout.com/v2/{BUZZ_ID}/episodes"
 
     # 3) Prepare headers
     headers = {
