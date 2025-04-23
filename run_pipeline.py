@@ -8,7 +8,7 @@ from llm_writer import make_script
 
 # === Configuration ===
 BUCKET = os.getenv("S3_BUCKET", "jc-ai-podcast-bucket")
-REGION = os.getenv("AWS_REGION", "us-east-1")
+REGION = os.getenv("AWS_REGION", "us-east-2")
 s3 = boto3.client("s3")
 
 # === Helpers ===
@@ -63,6 +63,7 @@ if __name__ == "__main__":
     # 1) Generate script via LLM
     topic = os.getenv("EPISODE_TOPIC", "Default AI Topic")
     script = make_script(topic)
+    print("DEBUG make_script returned:", script, flush=True)
 
     # Expecting keys: title, slug, full_script, description, pubDate
     title       = script.get("title")
