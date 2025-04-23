@@ -1,3 +1,5 @@
+# podcast_uploader.py
+
 import os
 import requests
 
@@ -7,25 +9,19 @@ def upload(mp3_path: str, title: str, description: str) -> dict:
     if not buzz_id or not buzz_key:
         raise RuntimeError("BUZZ_ID and BUZZ_KEY must be set in the environment")
 
-    # 👇 Hit the real API endpoint (note the .json)
-    url = f"https://api.buzzsprout.com/v2/podcasts/{buzz_id}/episodes.json"
-
-    headers = {
-        "Authorization": f"Token token={buzz_key}",
-        "User-Agent":    "ai-show-factory/1.0",
-        "Accept":        "application/json",
-    }
+    # ← version-1 API endpoint (token in querystring)
+    url = f"https://www.buzzsprout.com/api/{buzz_id}/episodes.json?api_token={buzz_key}"
 
     with open(mp3_path, "rb") as audio_file:
         response = requests.post(
             url,
-            headers=headers,
             files={"audio_file": audio_file},
             data={"title": title, "description": description},
         )
 
-    # 201 means “Created” – anything else we’ll print so you can see the real JSON
+    # Buzzsprout responds 201 on success
     if response.status_code != 201:
+        # print the first bit of their JSON error payload
         print("Buzzsprout returned:", response.status_code, response.text[:500])
         response.raise_for_status()
 
