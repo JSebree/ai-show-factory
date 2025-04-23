@@ -17,9 +17,9 @@ def upload(mp3_path: str, title: str, description: str) -> dict:
     # 1) Read and validate env vars
     BUZZ_ID = os.getenv("BUZZ_ID")
     BUZZ_KEY = os.getenv("BUZZ_KEY")
-    if not buzz_id:
+    if not BUZZ_ID:
         raise RuntimeError("Environment variable BUZZ_ID is not set")
-    if not buzz_key:
+    if not BUZZ_KEY:
         raise RuntimeError("Environment variable BUZZ_KEY is not set")
 
     # 2) Build the upload URL
