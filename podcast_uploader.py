@@ -15,19 +15,19 @@ def upload(mp3_path: str, title: str, description: str) -> dict:
     Raises an exception with details on failure.
     """
     # 1) Read and validate env vars
-    buzz_id = os.getenv("BUZZ_ID")
-    buzz_key = os.getenv("BUZZ_KEY")
+    BUZZ_ID = os.getenv("BUZZ_ID")
+    BUZZ_KEY = os.getenv("BUZZ_KEY")
     if not buzz_id:
         raise RuntimeError("Environment variable BUZZ_ID is not set")
     if not buzz_key:
         raise RuntimeError("Environment variable BUZZ_KEY is not set")
 
     # 2) Build the upload URL
-    url = f"https://uploads.buzzsprout.com/v2/{buzz_id}/episodes"
+    url = f"https://uploads.buzzsprout.com/v2/{BUZZ_ID}/episodes"
 
     # 3) Prepare headers
     headers = {
-        "Authorization": f"Token token={buzz_key}",
+        "Authorization": f"Token token={BUZZ_KEY}",
         "User-Agent":    "ai-show-factory/1.0",
         "Accept":        "application/json",
     }
