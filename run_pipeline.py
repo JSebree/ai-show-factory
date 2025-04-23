@@ -4,6 +4,7 @@ import json
 from xml.etree.ElementTree import Element, SubElement, tostring
 from pydub import AudioSegment
 from voice_maker import tts
+from llm_writer import make_script
 # … other imports …
 
 BUCKET = "jc-ai-podcast"
