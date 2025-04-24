@@ -51,7 +51,7 @@ def make_script(topic: str) -> dict:
             f"UTC date: {utc_now}\n\n"
             "Write a **20–25 minute** (≈ 7500–9000‑word) two‑host conversation.\n"
             "Requirements: • 30+ reputable emerging tech (specfically AI, quantum computing, and robotics) news "
-            "items (≤7 days old) • 1 listener Q&A • 1 sponsor read • 1 short case study.\n"
+            "items (≤7 days old) • 1 listener Q&A • 1 short case study.\n"
             "Hosts Art & Ingrid banter, speak a little slower, keep transitions natural (never name pillars).\n"
             "Implicit flow: intro/breakthroughs → ethics/policy → societal impact → speculative futures → wrap.\n"
             "Insert timestamps (MM:SS) at major topic changes.\n\n"
