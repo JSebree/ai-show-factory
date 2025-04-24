@@ -2,8 +2,8 @@
 import os
 import re
 import json
-import openai
 from datetime import datetime, timezone
+import openai
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -12,8 +12,8 @@ def make_script(topic: str) -> dict:
     Returns a dict with keys:
       - title (str)
       - description (str)
-      - pubDate (RFC2822 str)
-      - dialogue (list of {speaker,text,time})
+      - pubDate (RFC-2822 str)
+      - dialogue (list of {speaker, time, text})
     """
     # 1) Define the JSON schema we want
     json_schema = {
@@ -38,7 +38,7 @@ def make_script(topic: str) -> dict:
         "required": ["title", "description", "pubDate", "dialogue"]
     }
 
-    # 2) Build our system + user prompt
+    # 2) Build our system + user prompts
     system = {
         "role": "system",
         "content": (
@@ -57,20 +57,19 @@ def make_script(topic: str) -> dict:
             "Format:  \n"
             "- Two hosts: Art & Ingrid, friendly and engaging, with real chemistry.  \n"
             "- Dialogue style: back-and-forth, with brief banter but clear emphasis on facts.  \n"
-            "- Transitions from section to section must be smooth and natural.  \n"
+            "- Smooth, natural transitions between sections.  \n"
             "- Include approximate timestamps (mm:ss) for each Pillar segment, allocating roughly:  \n"
             "    * Breakthroughs: 05:00  \n"
             "    * Governance & Ethics: 05:00  \n"
             "    * Inner Life & Society: 05:00  \n"
             "    * Speculative Futures: 05:00  \n"
-            "    * Intros, transitions & wrap: 05–07 minutes total (spread across).  \n\n"
+            "    * Intros, transitions & wrap: 05–07 minutes total.  \n\n"
 
             "Explicitly generate a catchy `title` for this episode.  \n"
             "Produce exactly valid JSON (no markdown or commentary) conforming to this schema:"
         )
     }
 
-    # 3) User message
     user = {
         "role": "user",
         "content": f"""Here’s the topic to cover in today’s show:
@@ -79,14 +78,19 @@ def make_script(topic: str) -> dict:
 Return ONLY the JSON object—do not add any extra keys or text."""
     }
 
-    # 4) Call the new OpenAI ChatCompletion API
-    resp = openai.ChatCompletion.create(
+    # 3) Call the new Chat Completions endpoint
+    resp = openai.chat.completions.create(
         model="gpt-4o",
-        messages=[system, {"role":"system","content":json.dumps(json_schema)}, user],
+        messages=[
+            system,
+            {"role": "system", "content": json.dumps(json_schema)},
+            user
+        ],
         temperature=0.7,
         max_tokens=1500
     )
 
     raw = resp.choices[0].message.content
 
-    # 5) Strip fences and whitespace
+    # 4) Strip fences and whitespace
+    cleaned = re.sub(r"^```json\s*|\s
