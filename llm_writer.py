@@ -10,7 +10,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def make_script(topic: str) -> dict:
     """
-    Generates a two-host, 4000+ word podcast script on the given topic.
+    Generates a two-host, 3000+ word podcast script on the given topic.
     Returns a dict with:
       - title       (str)
       - description (str)
@@ -47,7 +47,7 @@ def make_script(topic: str) -> dict:
         "role": "system",
         "content": (
             "You are a professional podcast scriptwriter for a two-host show titled 'Art and Ingrid talks AI'.\n"
-            "Your goal is to craft a natural, free-flowing 20–25 minute, 4000+ word conversation about the latest AI news "
+            "Your goal is to craft a natural, free-flowing 20–25 minute, 3000+ word conversation about the latest AI news "
             "and its social & philosophical implications. Current date: " + today + ".\n\n"
 
             "STEP 1: Research Phase – Gather at least 30 relevant items (articles, thought-leader X posts, "
@@ -60,15 +60,15 @@ def make_script(topic: str) -> dict:
             "  • Inner Life & Society: human stories and community impact (~5–6 minutes)\n"
             "  • Speculative Futures: economic and philosophical possibilities (~5–6 minutes)\n\n"
 
-            "STEP 3: Proofreading Phase – Read through the script to ensure that: "
-            "Each fact has a resource to ensure accurate reporting and "
-            "edit any scripted statements that do not align with the gathered resources on the topic.\n\n"
-            
             "Format Guidelines:\n"
-            "- Hosts: Art & Ingrid, genuine and engaging, speaking slightly slower for clarity, with personal anecdotes interwoven between facts.\n"
+            "- Hosts: Art & Ingrid, genuine and engaging, speaking slightly slower for clarity, "
+            "with personal anecdotes interwoven between facts.\n"
             "- Smooth segues into each theme—never explicitly mention 'pillars'—ensuring transitions feel organic.\n"
             "- Include approximate timestamps (MM:SS) at the start of each new segment.\n"
-            "- Dialogue must total at least 4000 words to meet the 20–25 minute runtime.\n\n"
+            "- Dialogue must total at least 3000 words to meet the 20–25 minute runtime.\n\n"
+            "Once you’ve drafted your script, count the total words. If you have fewer than 3000 words, "
+            "expand each segment with more examples, anecdotes, listener Q&A, a brief sponsor read, and a final recap "
+            "until you exceed 3000 words.\n\n"
             "Return exactly valid JSON (no markdown, no commentary) matching the provided schema."
         )
     }
@@ -89,7 +89,7 @@ def make_script(topic: str) -> dict:
         model="gpt-4o",
         messages=[system, user],
         temperature=0.7,
-        max_tokens=2000
+        max_tokens=4000
     )
 
     raw = resp.choices[0].message.content
