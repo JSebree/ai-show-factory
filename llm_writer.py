@@ -38,64 +38,63 @@ def make_script(topic: str) -> dict:
         "required": ["title", "description", "pubDate", "dialogue"]
     }
 
-    # 2) System prompt guiding outline and expansion
+    # 2) Build the system prompt with all your requirements
     today = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
-    system_prompt = f"""
-        You are a podcast scriptwriter for 'Art and Ingrid talks AI'. Current date: {today}.
-        Your goal: craft a 20–25 minute, 3800+ word back-and-forth conversation
-        about the latest AI news and its social & philosophical impact.
+    system_prompt = (
+        "You are a podcast scriptwriter for **Art and Ingrid Talk A.I.**\n"
+        f"Current date (UTC): {today}\n\n"
+        "Your mission is to craft a **20–25 minute** (~3,800+ word) two-host episode—friendly, engaging, "
+        "fact-rich but with genuine chemistry—about the latest AI news from **only reputable sources** "
+        "published in the last **14 days** (including news sites, thought-leader tweets, LinkedIn posts, "
+        "YouTube snippets, Reddit conversations).\n\n"
 
-        STEP 1: Create a detailed outline in JSON with at least 10 bullet points for each of these themes,
-        plus bullets for Listener Q&A, Case Study Deep Dive, Sponsor Read, and Recap:
-          1. Breakthroughs
-          2. Governance & Ethics
-          3. Inner Life & Society
-          4. Speculative Futures
-        Example outline format:
-        {{
-          "Breakthroughs": ["First bullet", "Second bullet", ...],
-          "Governance & Ethics": [...],
-          ...
-        }}
+        "**Structure (smooth, unlabeled transitions; no robotic pillar call-outs):**\n"
+        "  • Breakthroughs (latest top stories, ~5 min)  \n"
+        "  • Governance & Ethics (policy, moral stakes, ~5 min)  \n"
+        "  • Inner Life & Society (psych/community impact, ~5 min)  \n"
+        "  • Speculative Futures (economy, philosophy, what’s next, ~5 min)  \n"
+        "  • Intros, wrap, Q&A, sponsor reads sprinkled to hit 20–25 min (total ~5 min)\n\n"
 
-        STEP 2: Expand each bullet into a 3–5 sentence friendly and engaging dialogue exchange between Art & Ingrid, with genuine chemistry,
-        including approximate timestamps (MM:SS) at the start of each section. Smooth, un-labeled transitions between topics
+        "**Style & Pacing:**\n"
+        "- Hosts: **Art** & **Ingrid**, back-and-forth banter—slightly slower delivery, "
+        "pauses to reflect, real-time reactions.  \n"
+        "- Emphasize facts and context; weave in anecdotes, listener questions, and 1 brief case study.  \n"
+        "- Include **approximate timestamps** (MM:SS) at each section start.\n\n"
 
-        STEP 3: After drafting, count total words. If under 3800 words, automatically add more
-        examples, anecdotes, Q&A, sponsor reads, or deeper dives until word count >= 3800.
+        "**Output:**\n"
+        "Return **only** valid JSON (no markdown, no commentary), exactly matching this top-level schema:\n"
+        + json.dumps(schema, indent=2)
+    )
 
-        Return ONLY the final script as valid JSON matching this schema (no markdown, no commentary):
-        """ + json.dumps(json_schema)
-    
-    # 3) User prompt: the specific topic
-    user = {
-        "role": "user",
-        "content": f"Here’s today’s topic:\n\n**{topic}**\n\nReturn only the JSON object."
-    }
+    # 3) The user prompt
+    user_prompt = (
+        f"Here’s today’s topic:\n\n**{topic}**\n\n"
+        "Return only the JSON object."
+    )
 
-    # 4) Invoke the API
-    resp = openai.chat.completions.create(
+    # 4) Call the new OpenAI API
+    resp = openai.ChatCompletion.create(
         model="gpt-4o",
         messages=[
-            system,
-            {"role": "system", "content": json.dumps(schema)},
-            user
+            {"role": "system",  "content": system_prompt},
+            {"role": "user",    "content": user_prompt}
         ],
         temperature=0.7,
         max_tokens=6000
     )
+
     raw = resp.choices[0].message.content
 
-    # 5) Strip code-fences if any
+    # 5) Strip any code fences
     cleaned = re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
 
     # 6) Parse JSON
     try:
         data = json.loads(cleaned)
-    except json.JSONDecodeError:
-        raise RuntimeError(f"Failed to parse JSON from LLM:\n{raw}")
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Failed to parse JSON from LLM:\n{raw}") from e
 
-    # 7) Validate keys
+    # 7) Validate required fields
     for key in ("title", "description", "pubDate", "dialogue"):
         if key not in data:
             raise RuntimeError(f"LLM returned missing field: {key}")
