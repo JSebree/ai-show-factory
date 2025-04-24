@@ -10,45 +10,36 @@ from voice_maker import tts
 from llm_writer import make_script
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
-BUCKET     = os.getenv("S3_BUCKET",     "jc-ai-podcast-bucket")
-REGION     = os.getenv("AWS_REGION",     "us-east-2")
-VOICE_ID   = os.getenv("ELEVEN_VOICE_ID")  # your TTS voice
-s3         = boto3.client("s3")
+BUCKET        = os.getenv("S3_BUCKET",     "jc-ai-podcast-bucket")
+REGION        = os.getenv("AWS_REGION",     "us-east-2")
+VOICE_A_ID    = os.getenv("ELEVEN_VOICE_A_ID")  # Host A
+VOICE_B_ID    = os.getenv("ELEVEN_VOICE_B_ID")  # Host B
+s3            = boto3.client("s3")
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 def slugify(text: str) -> str:
-    """Lowercase + replace non-alphanum with hyphens."""
     slug = text.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     return slug.strip("-")
 
 
 def publish_episode(mp3_path: str, metadata: dict) -> str:
-    """
-    Uploads the final MP3 to S3 under episodes/{slug}.mp3.
-    Returns the public URL (bucket must have a public read policy).
-    """
     key = f"episodes/{metadata['slug']}.mp3"
     s3.upload_file(
         Filename=mp3_path,
         Bucket=BUCKET,
         Key=key,
-        ExtraArgs={  # no ACL here
-            "ContentType": "audio/mpeg"
-        }
+        ExtraArgs={ "ContentType": "audio/mpeg" }
     )
     return f"https://{BUCKET}.s3.amazonaws.com/{key}"
 
 
 def generate_rss(episodes: list):
-    """
-    Builds an RSS XML from the episodes list and uploads it as rss.xml.
-    """
     rss = Element("rss", version="2.0")
     ch = SubElement(rss, "channel")
-    SubElement(ch, "title").text = "My AI Podcast"
-    SubElement(ch, "link").text  = f"https://{BUCKET}.s3-website-{REGION}.amazonaws.com/rss.xml"
+    SubElement(ch, "title").text       = "My AI Podcast"
+    SubElement(ch, "link").text        = f"https://{BUCKET}.s3-website-{REGION}.amazonaws.com/rss.xml"
     SubElement(ch, "description").text = "Automated AI show"
 
     for ep in episodes:
@@ -72,31 +63,62 @@ def generate_rss(episodes: list):
 
 # ─── Main Pipeline ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # 1) Generate with your LLM writer
-    topic = os.getenv("EPISODE_TOPIC", "Default AI Topic")
+    # 1) Generate script
+    topic  = os.getenv("EPISODE_TOPIC", "Default AI Topic")
     script = make_script(topic)
 
-    # 2) Normalize & fill missing fields
+    # 2) Extract & fill defaults
     title       = script.get("title", "").strip()
     description = script.get("description", "").strip()
-    text_body   = script.get("full_script") or script.get("text") or ""
+    full       = script.get("full_script") or script.get("text") or ""
     slug        = script.get("slug") or slugify(title)
     pub_date    = script.get("pubDate") or datetime.now(timezone.utc) \
                                          .strftime("%a, %d %b %Y %H:%M:%S GMT")
 
-    # 3) Quick sanity check
-    if not all([title, description, text_body]):
-        raise RuntimeError(f"LLM returned incomplete data: {script.keys()}")
+    # 3) Sanity check
+    if not all([title, description, full]):
+        raise RuntimeError(f"Incomplete LLM output: {script.keys()}")
 
-    # 4) Text-to-Speech
-    tts(text_body, "episode.mp3", voice_id=VOICE_ID)
+    # 4) Parse into Host A/B segments
+    segments = []
+    speaker, buffer = None, ""
+    for line in full.splitlines():
+        line = line.strip()
+        if line.startswith("Host A:"):
+            if speaker:
+                segments.append((speaker, buffer))
+            speaker = "A"
+            buffer  = line.split("Host A:", 1)[1].strip()
+        elif line.startswith("Host B:"):
+            if speaker:
+                segments.append((speaker, buffer))
+            speaker = "B"
+            buffer  = line.split("Host B:", 1)[1].strip()
+        else:
+            buffer += " " + line
+    if speaker and buffer:
+        segments.append((speaker, buffer))
 
-    # 5) Mastering: simple gain and export
+    # 5) TTS each segment & collect AudioSegments
+    audio_parts = []
+    for i, (sp, txt) in enumerate(segments):
+        vid    = VOICE_A_ID if sp == "A" else VOICE_B_ID
+        fname  = f"seg_{i}.mp3"
+        tts(txt, fname, voice_id=vid)
+        audio_parts.append(AudioSegment.from_file(fname, format="mp3"))
+
+    # 6) Concatenate into one episode.mp3
+    episode = audio_parts[0]
+    for part in audio_parts[1:]:
+        episode += part
+    episode.export("episode.mp3", format="mp3")
+
+    # 7) Mastering: simple gain tweak + export final
     audio = AudioSegment.from_file("episode.mp3", format="mp3")
     audio = audio.apply_gain(-3.0)
     audio.export("episode_final.mp3", format="mp3", bitrate="128k")
 
-    # 6) Upload to S3
+    # 8) Upload
     url = publish_episode("episode_final.mp3", {
         "title":       title,
         "description": description,
@@ -105,14 +127,9 @@ if __name__ == "__main__":
         "bytes":       os.path.getsize("episode_final.mp3")
     })
 
-    # 7) Maintain episodes.json locally
+    # 9) Update episodes.json
     eps_file = "episodes.json"
-    if os.path.exists(eps_file):
-        with open(eps_file) as f:
-            episodes = json.load(f)
-    else:
-        episodes = []
-
+    episodes = json.load(open(eps_file)) if os.path.exists(eps_file) else []
     episodes.insert(0, {
         "title":       title,
         "description": description,
@@ -124,7 +141,7 @@ if __name__ == "__main__":
     with open(eps_file, "w") as f:
         json.dump(episodes, f, indent=2)
 
-    # 8) Regenerate RSS
+    # 10) Regenerate RSS
     generate_rss(episodes)
 
-    print(f"✅ Published episode \"{title}\" → {url}")
+    print(f"✅ Published \"{title}\" → {url}")
