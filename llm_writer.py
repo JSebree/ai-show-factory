@@ -1,21 +1,23 @@
 # llm_writer.py
+
 import os
 import re
 import json
 import openai
 
-# make sure you have openai>=1.0.0 installed
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def make_script(topic: str) -> dict:
     """
-    Returns a dict with keys:
-      - title (str)
+    Generates a two-host podcast script on the given topic.
+    Returns a dict with:
+      - title       (str)
       - description (str)
-      - pubDate (RFC-2822 str)
-      - dialogue (list of {speaker, time, text})
+      - pubDate     (RFC-2822 str)
+      - dialogue    (list of {speaker: str, time: "MM:SS", text: str})
     """
-    # 1) Define the JSON schema we want
+
+    # 1) JSON schema
     json_schema = {
         "type": "object",
         "properties": {
@@ -38,74 +40,63 @@ def make_script(topic: str) -> dict:
         "required": ["title", "description", "pubDate", "dialogue"]
     }
 
-    # 2) Full system prompt with all requirements
+    # 2) Fine-tuned system prompt
     system = {
-        "role": "system",
+        "role":    "system",
         "content": (
-            "You are a professional podcast scriptwriter for a two-host show.  \n"
-            "Your job is to craft a 20–25 minute conversational episode about the latest AI news, "
-            "with social and philosophical implications, drawing only from reputable sources "
-            "published in the last 30 days.  \n\n"
+            "You are a professional podcast scriptwriter for a two-host show.\n"
+            "Produce a natural, free-flowing 20–25 minute conversation about the latest AI news "
+            "and its social & philosophical impact, drawing exclusively from reputable sources "
+            "published in the last 30 days.\n\n"
 
-            "Positioning: Bridge bleeding-edge advances (AI, quantum, neurotech) with ethics & social impact.  \n"
-            "Four Pillars:  \n"
-            "  1. Breakthroughs — concise explainers of top news items.  \n"
-            "  2. Governance & Ethics — policy stakes and moral dimensions.  \n"
-            "  3. Inner Life & Society — psychological/community impact.  \n"
-            "  4. Speculative Futures — economy, philosophy, and what’s next.  \n\n"
+            "Use these four themes to structure—but never name—the flow:\n"
+            "  • Breakthroughs: deep explainer of the day’s biggest AI headline\n"
+            "  • Governance & Ethics: policy stakes and emerging moral questions\n"
+            "  • Inner Life & Society: how AI is reshaping our psychology & communities\n"
+            "  • Speculative Futures: where this all leads economically & philosophically\n\n"
 
-            "Format:  \n"
-            "- Two hosts (Host A & Host B), friendly and engaging, with real chemistry.  \n"
-            "- Dialogue style: back-and-forth, with brief banter but clear emphasis on facts.  \n"
-            "- Make transitions smooth and natural.  \n"
-            "- Include approximate timestamps (mm:ss) for each Pillar segment, "
-            "allocating roughly:  \n"
-            "    * Breakthroughs: 05:00  \n"
-            "    * Governance/Ethics: 05:00  \n"
-            "    * Inner Life & Society: 05:00  \n"
-            "    * Speculative Futures: 05:00  \n"
-            "    * Intros, transitions & wrap: 05–07 minutes total.  \n\n"
+            "Format:\n"
+            "- Two hosts (Host A & Host B) in an easy, back-and-forth style with genuine rapport.\n"
+            "- No “pillar” call-outs—just smooth segues into each theme for ~5 minutes each.\n"
+            "- Include approximate timestamps (MM:SS) at the start of each segment.\n"
+            "- Total run time: 20–25 minutes of dialogue.\n\n"
 
-            "Produce exactly valid JSON (no markdown or commentary) matching this schema:"
+            "Produce exactly valid JSON (no markdown, no commentary) matching this schema."
         )
     }
 
-    # 3) Build user prompt
+    # 3) User prompt invoking schema
     user = {
-        "role": "user",
+        "role":    "user",
         "content": (
-            f"Topic: **{topic}**\n\n"
-            "Return only a JSON object with these top-level keys:\n"
-            "  • title (string)\n"
-            "  • description (string)\n"
-            "  • pubDate (RFC-2822)\n"
-            "  • dialogue (array of {speaker: str, time: \"mm:ss\", text: str})\n\n"
-            "Ensure you follow the schema exactly."
+            f"Topic: {topic}\n\n"
+            f"Here is the JSON schema to follow:\n\n{json.dumps(json_schema, indent=2)}\n\n"
+            "Return only the JSON object."
         )
     }
 
-    # 4) Call the new 1.x API endpoint
+    # 4) Call the API
     resp = openai.chat.completions.create(
         model="gpt-4o",
-        messages=[system, {"role":"system","content": json.dumps(json_schema)}, user],
+        messages=[system, user],
         temperature=0.7,
-        max_tokens=2000
+        max_tokens=1500
     )
 
     raw = resp.choices[0].message.content
 
-    # 5) Strip fences & whitespace
+    # 5) Clean out any fences
     cleaned = re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
 
     # 6) Parse JSON
     try:
         data = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"Failed to parse JSON from LLM:\n{raw}") from e
+    except json.JSONDecodeError:
+        raise RuntimeError(f"Failed to parse JSON from LLM:\n\n{raw}")
 
-    # 7) Sanity‐check all required keys
+    # 7) Sanity-check required keys
     for key in ("title", "description", "pubDate", "dialogue"):
         if key not in data:
-            raise RuntimeError(f"LLM returned missing field: {key}")
+            raise RuntimeError(f"Missing field from LLM output: {key}")
 
     return data
