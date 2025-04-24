@@ -70,14 +70,23 @@ if __name__ == "__main__":
     # 2) Extract & fill defaults
     title       = script.get("title", "").strip()
     description = script.get("description", "").strip()
-    full       = script.get("full_script") or script.get("text") or ""
-    slug        = script.get("slug") or slugify(title)
-    pub_date    = script.get("pubDate") or datetime.now(timezone.utc) \
-                                         .strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    # now accept either "full_script" or "dialogue"
+    full = (
+        script.get("full_script")
+        or script.get("dialogue")
+        or script.get("text")
+        or ""
+    )
+
+    slug     = script.get("slug") or slugify(title)
+    pub_date = script.get("pubDate") or datetime.now(timezone.utc) \
+                                          .strftime("%a, %d %b %Y %H:%M:%S GMT")
 
     # 3) Sanity check
     if not all([title, description, full]):
         raise RuntimeError(f"Incomplete LLM output: {script.keys()}")
+
 
     # 4) Parse into Host A/B segments
     segments = []
