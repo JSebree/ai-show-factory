@@ -10,48 +10,49 @@ from voice_maker import tts
 from llm_writer import make_script
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
-BUCKET     = os.getenv("S3_BUCKET", "jc-ai-podcast-bucket")
-REGION     = os.getenv("AWS_REGION", "us-east-2")
-VOICE_A_ID = os.getenv("ELEVEN_VOICE_A_ID")   # e.g. first host
-VOICE_B_ID = os.getenv("ELEVEN_VOICE_B_ID")   # e.g. second host
-s3         = boto3.client("s3", region_name=REGION)
-
+BUCKET          = os.getenv("S3_BUCKET", "jc-ai-podcast-bucket")
+REGION          = os.getenv("AWS_REGION", "us-east-2")
+VOICE_A_ID      = os.getenv("ELEVEN_VOICE_A_ID")  # first co-host voice ID
+VOICE_B_ID      = os.getenv("ELEVEN_VOICE_B_ID")  # second co-host voice ID
+S3_BASE_URL     = f"https://{BUCKET}.s3.amazonaws.com"
+RSS_PAGE_URL    = f"https://{BUCKET}.s3-website-{REGION}.amazonaws.com/rss.xml"
+s3_client       = boto3.client("s3")
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 def slugify(text: str) -> str:
-    """Lowercase + replace non-alphanum with hyphens."""
+    """Simple slugifier: lowercases and replaces non-alphanum with hyphens."""
     slug = text.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     return slug.strip("-")
 
 
-def publish_episode(mp3_path: str, metadata: dict) -> str:
+def publish_episode(file_path: str, slug: str) -> str:
     """
-    Uploads the final MP3 to S3 under episodes/{slug}.mp3.
-    Returns the public URL.
+    Upload file to S3 under `episodes/{slug}.mp3` and return its public URL.
+    Requires bucket policy allowing public read.
     """
-    key = f"episodes/{metadata['slug']}.mp3"
-    s3.upload_file(
-        Filename=mp3_path,
+    key = f"episodes/{slug}.mp3"
+    s3_client.upload_file(
+        Filename=file_path,
         Bucket=BUCKET,
         Key=key,
         ExtraArgs={"ContentType": "audio/mpeg"}
     )
-    return f"https://{BUCKET}.s3.amazonaws.com/{key}"
+    return f"{S3_BASE_URL}/{key}"
 
 
-def generate_rss(episodes: list):
+def generate_rss(episodes: list[dict]):
     """
-    Builds an RSS XML from the episodes list and uploads it as rss.xml.
+    Build and upload RSS feed to `rss.xml` in the bucket.
     """
     rss = Element("rss", version="2.0")
-    ch = SubElement(rss, "channel")
-    SubElement(ch, "title").text = "My AI Podcast"
-    SubElement(ch, "link").text = f"https://{BUCKET}.s3-website-{REGION}.amazonaws.com/rss.xml"
-    SubElement(ch, "description").text = "Automated AI show"
+    channel = SubElement(rss, "channel")
+    SubElement(channel, "title").text = "My AI Podcast"
+    SubElement(channel, "link").text = RSS_PAGE_URL
+    SubElement(channel, "description").text = "Automated AI co-hosted show"
 
     for ep in episodes:
-        item = SubElement(ch, "item")
+        item = SubElement(channel, "item")
         SubElement(item, "title").text = ep["title"]
         SubElement(item, "description").text = ep["description"]
         SubElement(item, "pubDate").text = ep["pubDate"]
@@ -61,95 +62,94 @@ def generate_rss(episodes: list):
         enc.set("type",   "audio/mpeg")
 
     xml_data = tostring(rss, encoding="utf-8", xml_declaration=True)
-    s3.put_object(
+    s3_client.put_object(
         Bucket=BUCKET,
         Key="rss.xml",
         Body=xml_data,
         ContentType="application/rss+xml"
     )
 
-
 # ─── Main Pipeline ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # 1) Generate script with two-host dialogue
-    topic = os.getenv("EPISODE_TOPIC", "Default AI Topic")
+    # 1) Ask LLM for a script/topic dialogue
+    topic = os.getenv("EPISODE_TOPIC", "AI and society")
     script = make_script(topic)
 
-    title       = script.get("title", "").strip()
-    description = script.get("description", "").strip()
-    pub_date    = script.get("pubDate") or datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
-    slug        = script.get("slug") or slugify(title)
-    dialogue    = script.get("dialogue", [])
+    # validate required keys
+    required = {"title", "description", "pubDate", "dialogue"}
+    if not required.issubset(script):
+        missing = required - set(script)
+        raise RuntimeError(f"LLM script missing fields: {missing}")
 
-    # sanity check
-    if not (title and description and dialogue):
-        raise RuntimeError(f"Incomplete LLM output: {script.keys()}")
+    title       = script["title"].strip()
+    description = script["description"].strip()
+    pub_date    = script["pubDate"].strip()
+    dialogue    = script["dialogue"]
+    slug        = slugify(title)
 
-    # 2) Render each turn with the proper voice, ElevenLabs comes back as MP3
-    segments = []
+    # 2) Render each dialogue turn with the correct co-host voice
+    # map speaker names to the two voice IDs in encounter order
+    speaker_map: dict[str,str] = {}
+    segments: list[AudioSegment] = []
     for idx, turn in enumerate(dialogue):
-        speaker = turn.get("speaker", "").strip()
-        text    = turn.get("text",    "").strip()
-        if not text:
+        speaker = turn.get("speaker","").strip()
+        text    = turn.get("text","").strip()
+        if not (speaker and text):
             continue
 
-        # pick the correct ElevenLabs voice
-        if speaker.lower().startswith("host a"):
-            vid = VOICE_A_ID
-        elif speaker.lower().startswith("host b"):
-            vid = VOICE_B_ID
-        else:
-            raise RuntimeError(f"Unknown speaker “{speaker}”")
+        # assign voice IDs dynamically
+        if speaker not in speaker_map:
+            if len(speaker_map) == 0:
+                speaker_map[speaker] = VOICE_A_ID
+            elif len(speaker_map) == 1:
+                speaker_map[speaker] = VOICE_B_ID
+            else:
+                raise RuntimeError(f"More than two speakers encountered: {speaker_map.keys()} + {speaker}")
+        voice_id = speaker_map[speaker]
+        if not voice_id:
+            raise RuntimeError(f"No voice ID configured for speaker {speaker}")
 
-        # write out as MP3, then let pydub auto-detect format
-        mp3_path = f"seg_{idx}.mp3"
-        tts(text, mp3_path, voice_id=vid)
-        segments.append(AudioSegment.from_file(mp3_path))
+        out_file = f"seg_{idx}.mp3"
+        tts(text, out_file, voice_id=voice_id)
+        segments.append(AudioSegment.from_file(out_file))
 
-    # 3) Concatenate into one MP3
+    # if no segments, bail
     if not segments:
-        raise RuntimeError("No audio segments generated")
+        raise RuntimeError("No audio segments generated—from empty dialogue?")
 
-    episode_audio = segments[0]
+    # 3) Concatenate all segments into episode.mp3
+    episode = segments[0]
     for seg in segments[1:]:
-        episode_audio += seg
-    episode_audio.export("episode.mp3", format="mp3", bitrate="128k")
+        episode += seg
+    episode.export("episode.mp3", format="mp3", bitrate="128k")
 
-    # 4) Optional mastering
-    mastered = AudioSegment.from_file("episode.mp3", format="mp3")
-    mastered = mastered.apply_gain(-3.0)
-    mastered.export("episode_final.mp3", format="mp3", bitrate="128k")
+    # 4) Simple mastering: gain adjustment
+    audio = AudioSegment.from_file("episode.mp3", format="mp3")
+    final = audio.apply_gain(-3.0)
+    final.export("episode_final.mp3", format="mp3", bitrate="128k")
 
-    # 5) Upload & metadata
-    size_bytes = os.path.getsize("episode_final.mp3")
-    url = publish_episode("episode_final.mp3", {
-        "title":       title,
-        "description": description,
-        "slug":        slug,
-        "pubDate":     pub_date,
-        "bytes":       size_bytes
-    })
+    # 5) Upload to S3 and record metadata
+    url = publish_episode("episode_final.mp3", slug)
+    size = os.path.getsize("episode_final.mp3")
 
-    # 6) Update local episodes.json
+    # load or init episodes list
     eps_file = "episodes.json"
+    episodes = []
     if os.path.exists(eps_file):
-        with open(eps_file, "r") as f:
+        with open(eps_file) as f:
             episodes = json.load(f)
-    else:
-        episodes = []
 
     episodes.insert(0, {
         "title":       title,
         "description": description,
-        "slug":        slug,
         "pubDate":     pub_date,
         "url":         url,
-        "bytes":       size_bytes
+        "bytes":       size
     })
     with open(eps_file, "w") as f:
         json.dump(episodes, f, indent=2)
 
-    # 7) Regenerate RSS
+    # 6) Regenerate RSS
     generate_rss(episodes)
 
-    print(f"✅ Published episode “{title}” → {url}")
+    print(f"✅ Published: {title} → {url}")
