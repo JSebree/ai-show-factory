@@ -12,8 +12,8 @@ from llm_writer import make_script
 # ─── Configuration ─────────────────────────────────────────────────────────────
 BUCKET     = os.getenv("S3_BUCKET", "jc-ai-podcast-bucket")
 REGION     = os.getenv("AWS_REGION", "us-east-2")
-VOICE_A_ID = os.getenv("ELEVEN_VOICE_A")   # e.g. first host
-VOICE_B_ID = os.getenv("ELEVEN_VOICE_B")   # e.g. second host
+VOICE_A_ID = os.getenv("ELEVEN_VOICE_A_ID")   # e.g. first host
+VOICE_B_ID = os.getenv("ELEVEN_VOICE_B_ID")   # e.g. second host
 s3         = boto3.client("s3", region_name=REGION)
 
 
