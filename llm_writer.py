@@ -10,20 +10,20 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 def make_script(topic: str) -> dict:
     """
     Returns a dict with keys:
-      - title (str)
+      - title       (str)
       - description (str)
-      - pubDate (RFC-2822 str)
-      - dialogue (list of {speaker, time, text})
+      - pubDate     (RFC-2822 str)
+      - dialogue    (list of {speaker, time, text})
     """
-    # 1) Define the JSON schema we want
-    json_schema = {
+    # 1) JSON schema for validation
+    schema = {
         "type": "object",
         "properties": {
             "title":       {"type": "string"},
             "description": {"type": "string"},
             "pubDate":     {"type": "string"},
             "dialogue": {
-                "type":  "array",
+                "type": "array",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -38,75 +38,73 @@ def make_script(topic: str) -> dict:
         "required": ["title", "description", "pubDate", "dialogue"]
     }
 
-    # 2) Build our system + user prompts
-    system = {
-        "role": "system",
-        "content": (
-            "You are a professional podcast scriptwriter for a two-host show.  \n"
-            "Your job is to craft a 20–25 minute conversational episode about the latest AI news, "
-            "with social and philosophical implications, drawing only from reputable sources "
-            "published in the last 14 days.  \n\n"
+    # 2) System prompt guiding outline and expansion
+    today = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    system_prompt = f"""
+        You are a podcast scriptwriter for 'Art and Ingrid talks AI'. Current date: {today}.
+        Your goal: craft a 20–25 minute, 3800+ word back-and-forth conversation
+        about the latest AI news and its social & philosophical impact.
 
-            "Positioning: Bridge bleeding-edge advances (AI, quantum, neurotech) with ethics & social impact.  \n"
-            "Four Pillars:  \n"
-            "  1. Breakthroughs — concise explainers of top news items.  \n"
-            "  2. Governance & Ethics — policy stakes and moral dimensions.  \n"
-            "  3. Inner Life & Society — psychological and community impact.  \n"
-            "  4. Speculative Futures — economy, philosophy, and what’s next.  \n\n"
+        STEP 1: Create a detailed outline in JSON with at least 10 bullet points for each of these themes,
+        plus bullets for Listener Q&A, Case Study Deep Dive, Sponsor Read, and Recap:
+          1. Breakthroughs
+          2. Governance & Ethics
+          3. Inner Life & Society
+          4. Speculative Futures
+        Example outline format:
+        {{
+          "Breakthroughs": ["First bullet", "Second bullet", ...],
+          "Governance & Ethics": [...],
+          ...
+        }}
 
-            "Format:  \n"
-            "- Two hosts: Art & Ingrid, friendly and engaging, with real chemistry.  \n"
-            "- Dialogue style: back-and-forth, with brief banter but clear emphasis on facts.  \n"
-            "- Smooth, natural transitions between sections.  \n"
-            "- Include approximate timestamps (mm:ss) for each Pillar segment, allocating roughly:  \n"
-            "    * Breakthroughs: 05:00  \n"
-            "    * Governance & Ethics: 05:00  \n"
-            "    * Inner Life & Society: 05:00  \n"
-            "    * Speculative Futures: 05:00  \n"
-            "    * Intros, transitions & wrap: 05–07 minutes total.  \n\n"
+        STEP 2: Expand each bullet into a 3–5 sentence friendly and engaging dialogue exchange between Art & Ingrid, with genuine chemistry,
+        including approximate timestamps (MM:SS) at the start of each section. Smooth, un-labeled transitions between topics
 
-            "Explicitly generate a catchy `title` for this episode.  \n"
-            "Produce exactly valid JSON (no markdown or commentary) conforming to this schema:"
-        )
-    }
+        STEP 3: After drafting, count total words. If under 3800 words, automatically add more
+        examples, anecdotes, Q&A, sponsor reads, or deeper dives until word count >= 3800.
 
+        Return ONLY the final script as valid JSON matching this schema (no markdown, no commentary):
+        """ + json.dumps(json_schema)
+    
+    # 3) User prompt: the specific topic
     user = {
         "role": "user",
-        "content": f"""Here’s the topic to cover in today’s show:
-**{topic}**
-
-Return ONLY the JSON object—do not add any extra keys or text."""
+        "content": f"Here’s today’s topic:\n\n**{topic}**\n\nReturn only the JSON object."
     }
 
-    # 3) Call the new Chat Completions endpoint
+    # 4) Invoke the API
     resp = openai.chat.completions.create(
         model="gpt-4o",
         messages=[
             system,
-            {"role": "system", "content": json.dumps(json_schema)},
+            {"role": "system", "content": json.dumps(schema)},
             user
         ],
         temperature=0.7,
-        max_tokens=1500
+        max_tokens=6000
     )
-
     raw = resp.choices[0].message.content
 
-    # 4) Strip fences and whitespace
-    #    <-- Notice the properly closed quotes here below!
+    # 5) Strip code-fences if any
     cleaned = re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
 
-    # 5) Parse JSON
+    # 6) Parse JSON
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError:
         raise RuntimeError(f"Failed to parse JSON from LLM:\n{raw}")
 
-    # 6) Sanity-check & defaults
-    if not data.get("title", "").strip():
-        data["title"] = f"{topic} — {datetime.now(timezone.utc).strftime('%b %d, %Y')}"
-    for key in ("description", "pubDate", "dialogue"):
+    # 7) Validate keys
+    for key in ("title", "description", "pubDate", "dialogue"):
         if key not in data:
             raise RuntimeError(f"LLM returned missing field: {key}")
+
+    # 8) Fill defaults if blank
+    now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    if not data["title"].strip():
+        data["title"] = f"{topic} — {datetime.now(timezone.utc).strftime('%b %d, %Y')}"
+    if not data["pubDate"].strip():
+        data["pubDate"] = now
 
     return data
