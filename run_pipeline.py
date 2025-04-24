@@ -10,10 +10,10 @@ from voice_maker import tts
 from llm_writer import make_script
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
-BUCKET        = os.getenv("S3_BUCKET",     "jc-ai-podcast-bucket")
-REGION        = os.getenv("AWS_REGION",     "us-east-2")
-VOICE_A_ID    = os.getenv("ELEVEN_VOICE_A_ID")  # Host A
-VOICE_B_ID    = os.getenv("ELEVEN_VOICE_B_ID")  # Host B
+BUCKET        = os.getenv("S3_BUCKET", "jc-ai-podcast-bucket")
+REGION        = os.getenv("AWS_REGION", "us-east-2")
+VOICE_A_ID    = os.getenv("ELEVEN_VOICE_A_ID")  # e.g. cohost 1
+VOICE_B_ID    = os.getenv("ELEVEN_VOICE_B_ID")  # e.g. cohost 2
 s3            = boto3.client("s3")
 
 
@@ -30,14 +30,14 @@ def publish_episode(mp3_path: str, metadata: dict) -> str:
         Filename=mp3_path,
         Bucket=BUCKET,
         Key=key,
-        ExtraArgs={ "ContentType": "audio/mpeg" }
+        ExtraArgs={"ContentType": "audio/mpeg"}
     )
     return f"https://{BUCKET}.s3.amazonaws.com/{key}"
 
 
 def generate_rss(episodes: list):
     rss = Element("rss", version="2.0")
-    ch = SubElement(rss, "channel")
+    ch  = SubElement(rss, "channel")
     SubElement(ch, "title").text       = "My AI Podcast"
     SubElement(ch, "link").text        = f"https://{BUCKET}.s3-website-{REGION}.amazonaws.com/rss.xml"
     SubElement(ch, "description").text = "Automated AI show"
@@ -61,73 +61,58 @@ def generate_rss(episodes: list):
     )
 
 
-# ─── Main Pipeline ────────────────────────────────────────────────────────────
+# ─── Pipeline ─────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # 1) Generate script
-    topic  = os.getenv("EPISODE_TOPIC", "Default AI Topic")
+    topic = os.getenv("EPISODE_TOPIC", "Default AI Topic")
     script = make_script(topic)
 
-    # 2) Extract & fill defaults
-    title       = script.get("title", "").strip()
-    description = script.get("description", "").strip()
+    # pull out the fields
+    title       = script.get("title","").strip()
+    description = script.get("description","").strip()
+    slug        = script.get("slug") or slugify(title)
+    pub_date    = script.get("pubDate") or datetime.now(timezone.utc)\
+                                            .strftime("%a, %d %b %Y %H:%M:%S GMT")
 
-    # now accept either "full_script" or "dialogue"
-    full = (
-        script.get("full_script")
-        or script.get("dialogue")
-        or script.get("text")
-        or ""
-    )
+    # dialogue may come back as a single string or a list
+    raw = script.get("dialogue") or script.get("full_script") or ""
+    # if it's a list, join on newlines; if a string, leave it
+    if isinstance(raw, list):
+        full_text = "\n".join(raw)
+    else:
+        full_text = raw
 
-    slug     = script.get("slug") or slugify(title)
-    pub_date = script.get("pubDate") or datetime.now(timezone.utc) \
-                                          .strftime("%a, %d %b %Y %H:%M:%S GMT")
-
-    # 3) Sanity check
-    if not all([title, description, full]):
+    if not all([title, description, full_text]):
         raise RuntimeError(f"Incomplete LLM output: {script.keys()}")
 
-
-    # 4) Parse into Host A/B segments
+    # split into turns
+    lines = [ln.strip() for ln in full_text.splitlines() if ln.strip()]
     segments = []
-    speaker, buffer = None, ""
-    for line in full.splitlines():
-        line = line.strip()
-        if line.startswith("Host A:"):
-            if speaker:
-                segments.append((speaker, buffer))
-            speaker = "A"
-            buffer  = line.split("Host A:", 1)[1].strip()
-        elif line.startswith("Host B:"):
-            if speaker:
-                segments.append((speaker, buffer))
-            speaker = "B"
-            buffer  = line.split("Host B:", 1)[1].strip()
+    for i, line in enumerate(lines, start=1):
+        # Expect lines like: "Host A: Hello…" or "Host B: Great question!"
+        if line.startswith("Host B:"):
+            voice_id = VOICE_B_ID
         else:
-            buffer += " " + line
-    if speaker and buffer:
-        segments.append((speaker, buffer))
+            # default to Host A for anything else (including "Host A:")
+            voice_id = VOICE_A_ID
 
-    # 5) TTS each segment & collect AudioSegments
-    audio_parts = []
-    for i, (sp, txt) in enumerate(segments):
-        vid    = VOICE_A_ID if sp == "A" else VOICE_B_ID
-        fname  = f"seg_{i}.mp3"
-        tts(txt, fname, voice_id=vid)
-        audio_parts.append(AudioSegment.from_file(fname, format="mp3"))
+        out_file = f"segment_{i:03d}.mp3"
+        tts(
+            text=line,
+            out_path=out_file,
+            voice_id=voice_id
+        )
+        segments.append(out_file)
 
-    # 6) Concatenate into one episode.mp3
-    episode = audio_parts[0]
-    for part in audio_parts[1:]:
-        episode += part
-    episode.export("episode.mp3", format="mp3")
+    # concatenate
+    convo = AudioSegment.empty()
+    for seg in segments:
+        convo += AudioSegment.from_file(seg, format="mp3")
 
-    # 7) Mastering: simple gain tweak + export final
-    audio = AudioSegment.from_file("episode.mp3", format="mp3")
-    audio = audio.apply_gain(-3.0)
-    audio.export("episode_final.mp3", format="mp3", bitrate="128k")
+    # apply a little mastering
+    convo = convo.apply_gain(-3.0)
+    convo.export("episode_final.mp3", format="mp3", bitrate="128k")
 
-    # 8) Upload
+    # upload
     url = publish_episode("episode_final.mp3", {
         "title":       title,
         "description": description,
@@ -136,9 +121,13 @@ if __name__ == "__main__":
         "bytes":       os.path.getsize("episode_final.mp3")
     })
 
-    # 9) Update episodes.json
+    # update local episodes.json
     eps_file = "episodes.json"
-    episodes = json.load(open(eps_file)) if os.path.exists(eps_file) else []
+    if os.path.exists(eps_file):
+        with open(eps_file) as f: episodes = json.load(f)
+    else:
+        episodes = []
+
     episodes.insert(0, {
         "title":       title,
         "description": description,
@@ -147,10 +136,10 @@ if __name__ == "__main__":
         "url":         url,
         "bytes":       os.path.getsize("episode_final.mp3")
     })
-    with open(eps_file, "w") as f:
+    with open(eps_file,"w") as f:
         json.dump(episodes, f, indent=2)
 
-    # 10) Regenerate RSS
+    # regenerate RSS
     generate_rss(episodes)
 
-    print(f"✅ Published \"{title}\" → {url}")
+    print(f"✅ Published episode “{title}” → {url}")
