@@ -5,22 +5,21 @@ import openai
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-TARGET_MIN   = 3800            # words  (≈ 20 min @ 190-wpm TTS, or 25 min @ 150-wpm)
-TARGET_MAX   = 4400            # give the model some head-room
-MAX_ROUNDS   = 3               # attempts to enlarge the script
-MODEL        = "gpt-4o-mini"   # you can swap to full gpt-4o if desired
+TARGET_MIN   = 3800          # ≈ 20 min @ ~190 wpm TTS
+TARGET_MAX   = 4400          # soft upper guard-rail
+MAX_ROUNDS   = 3             # extra “expansion” passes if short
+MODEL        = "gpt-4o-mini" # swap to gpt-4o for even richer output
 
-# --------------------------------------------------------------------------- #
-# Helper ­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­­ #
-def word_count(instr: str | list) -> int:
-    if isinstance(instr, list):
-        return sum(len(d["text"].split()) for d in instr)
-    return len(instr.split())
+# ──────────────────────────────────────────────────────────────────────────── #
+def words(obj) -> int:
+    """Count words in dialogue list or plain string."""
+    if isinstance(obj, list):
+        return sum(len(d["text"].split()) for d in obj)
+    return len(obj.split())
 
-# --------------------------------------------------------------------------- #
-# Main generator
+# ──────────────────────────────────────────────────────────────────────────── #
 def make_script(topic: str) -> dict:
-    """Return a JSON script {title, description, pubDate, dialogue[]}"""
+    """Return podcast JSON {title, description, pubDate, dialogue[]}"""
     schema = {
         "type": "object",
         "properties": {
@@ -43,57 +42,59 @@ def make_script(topic: str) -> dict:
         "required": ["title", "description", "pubDate", "dialogue"]
     }
 
-    def system_prompt():
-        utc_now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
-        return (
-            "You are the senior writer for the two-host podcast **Art and Ingrid Talk A.I.**\n"
-            f"Current UTC date/time: {utc_now}\n\n"
-            "Goal → deliver a **friendly, engaging, 20-25 min (~3 800-4 400 words)** conversation between Art & Ingrid.\n"
-            "· Cover only reputable AI news from the **last 14 days**, citing at least **30 distinct items**\n"
-            "· Fold in 1 listener Q&A and 1 short real-world case study\n"
-            "· Hosts banter naturally, transitions flow (never name sections)\n"
-            "· Target speaking pace ≈ 135 wpm (slightly slower than normal)\n"
-            "· Insert timestamps MM:SS whenever the topic clearly changes\n\n"
-            "OUTPUT exactly one JSON object that matches this schema (no markdown fences):\n"
-            + json.dumps(schema, indent=2)
-        )
+    utc_now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    common_system = (
+        "You are the senior scriptwriter for **Art and Ingrid Talk A.I.**\n"
+        f"Current UTC date: {utc_now}\n\n"
+        "❑ **Runtime target:** 20–25 min (≈ 3 800–4 400 words, ~135 wpm pace).\n"
+        "❑ **Hosts:** Art & Ingrid – warm chemistry, light banter, then fact-rich discussion.\n"
+        "❑ **Sources:** Pull at least **30** reputable AI items (news, peer tweets, LinkedIn posts, "
+        "YouTube clips, Reddit threads) published **≤ 14 days** ago.\n"
+        "❑ **Mandatory elements:** 1 case-study deep dive • 1 listener Q&A.\n\n"
+        "❑ **Flow (no section labels in dialogue):**\n"
+        "   • Intro & big breakthroughs\n"
+        "   • Policy / ethics angles\n"
+        "   • Societal & psychological impacts\n"
+        "   • Speculative futures\n"
+        "   • Wrap-up + next steps\n\n"
+        "❑ Insert **timestamps (MM:SS)** at each natural transition; aim ~5 min per core block.\n"
+        "❑ After drafting, if word-count < 3 800, **expand** by adding extra anecdotes, deeper analysis, "
+        "or more Q&A until ≥ 3 800 words.\n\n"
+        "Return **only** a JSON object matching this schema:\n"
+        + json.dumps(schema, indent=2)
+    )
 
     user_msg = {
         "role": "user",
         "content": f"Today’s umbrella topic:\n\n**{topic}**\n\nReturn only the JSON object."
     }
 
-    # -------------- round-robin enlargement loop ---------------------------- #
     draft = None
     for attempt in range(1, MAX_ROUNDS + 1):
-        messages = [
-            {"role": "system", "content": system_prompt()},
-            user_msg
-        ]
-        # On iterations 2+, feed back previous script & ask for expansion
+        messages = [{"role": "system", "content": common_system}, user_msg]
+
         if draft:
-            deficit = TARGET_MIN - word_count(draft["dialogue"])
-            messages.append({
-                "role": "assistant",
-                "content": json.dumps(draft)
-            })
-            messages.append({
-                "role": "user",
-                "content": (
-                    f"The previous JSON is ≈{word_count(draft['dialogue'])} words "
-                    f"({deficit} short of target). Expand it to ~{TARGET_MIN+400} words "
-                    "by adding deeper examples, extra banter, additional news items, "
-                    "and longer reflective passages—keep timestamps consistent. "
-                    "Return the complete *re-written* JSON object."
-                )
-            })
+            deficit = TARGET_MIN - words(draft["dialogue"])
+            messages.extend([
+                {"role": "assistant", "content": json.dumps(draft)},
+                {
+                    "role": "user",
+                    "content": (
+                        f"The previous script is about {words(draft['dialogue'])} words "
+                        f"({deficit} short of target). Enrich it – add more news items, "
+                        "longer reflections, extra banter, extended listener Q&A – until "
+                        "total words fall between 3 800 and 4 400. Return the full revised JSON."
+                    )
+                }
+            ])
 
         resp = openai.chat.completions.create(
             model       = MODEL,
             messages    = messages,
-            temperature = 0.7,
-            max_tokens  = 9000   # plenty of runway
+            temperature = 0.65,
+            max_tokens  = 9000
         )
+
         raw = resp.choices[0].message.content
         cleaned = re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.I)
 
@@ -102,16 +103,14 @@ def make_script(topic: str) -> dict:
         except json.JSONDecodeError:
             raise RuntimeError(f"Could not parse JSON (attempt {attempt}):\n{raw}")
 
-        w = word_count(draft["dialogue"])
-        if TARGET_MIN <= w <= TARGET_MAX:
-            break  # good length
-    else:
-        print(f"⚠️  Still under target after {MAX_ROUNDS} rounds (≈{w} words) – continuing anyway.")
+        wc = words(draft["dialogue"])
+        if TARGET_MIN <= wc <= TARGET_MAX:
+            break  # success
 
-    # Fill defaults
+    # Final hygiene
     if not draft["title"].strip():
-        draft["title"] = f"{topic} — {datetime.now(timezone.utc).strftime('%b %d, %Y')}"
+        draft["title"] = f"{topic} — {datetime.now(timezone.utc).strftime('%b %d %Y')}"
     if not draft["pubDate"].strip():
-        draft["pubDate"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+        draft["pubDate"] = utc_now
 
     return draft
