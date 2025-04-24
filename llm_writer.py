@@ -50,9 +50,9 @@ def make_script(topic: str) -> dict:
             "Your goal is to craft a natural, free-flowing 20–25 minute conversation about the latest AI news "
             "and its social & philosophical impact. Current date: " + today + ".\n\n"
 
-            "STEP 1: Research Phase – Gather at least 20 relevant items (articles, thought-leader tweets/X posts, "
+            "STEP 1: Research Phase – Gather at least 30 relevant items (articles, thought-leader tweets/X posts, "
             "LinkedIn essays, YouTube explainers, Reddit threads) on the topic from reputable sources published "
-            "in the last 30 days. Use these to enrich examples, quotes, and case studies.\n\n"
+            "in the last 14 days. Use these to enrich examples, quotes, and case studies.\n\n"
 
             "STEP 2: Script Phase – Structure by four themes without naming them directly:\n"
             "  • Breakthroughs: deep explainer of today’s major AI headline\n"
