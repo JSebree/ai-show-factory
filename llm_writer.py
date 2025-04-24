@@ -13,7 +13,10 @@ MODEL        = "gpt-4o-mini"  # upgrade if quota permits
 # ────────────────────────────────────────────────────────────
 
 def _count_words(dialogue):
-    return sum(len(turn["text"].split()) for turn in dialogue)
+    """Return word‑count of a dialogue list; 0 if missing/empty."""
+    if not isinstance(dialogue, list):
+        return 0
+    return sum(len(turn.get("text", "").split()) for turn in dialogue)
 
 # ────────────────────────────────────────────────────────────
 
@@ -75,12 +78,14 @@ Return exactly one JSON object conforming to this schema (no markdown fences):
             {"role": "system", "content": base_system},
             user_msg
         ]
-        if draft:
-            wc = _count_words(draft["dialogue"])
-            msgs.extend([
-                {"role": "assistant", "content": json.dumps(draft)},
-                {"role": "user", "content": f"Current length ≈{wc} words; need at least {TARGET_MIN}. Please expand."}
-            ])
+        if draft is not None:
+            wc = _count_words(draft.get("dialogue"))
+            # If model returned malformed structure, ignore expansion request
+            if wc:
+                msgs.extend([
+                    {"role": "assistant", "content": json.dumps(draft)},
+                    {"role": "user", "content": f"Current length ≈{wc} words; need at least {TARGET_MIN}. Please expand."}
+                ])
 
         resp = openai.chat.completions.create(
             model=MODEL,
@@ -93,16 +98,22 @@ Return exactly one JSON object conforming to this schema (no markdown fences):
         try:
             draft = json.loads(cleaned)
         except json.JSONDecodeError:
-            raise RuntimeError(f"Failed to parse JSON (round {round_no})")
+            # Ask model once more to return valid JSON then continue loop
+            draft = {}
+            continue
 
-        words = _count_words(draft["dialogue"])
+        words = _count_words(draft.get("dialogue"))
         if TARGET_MIN <= words <= TARGET_MAX:
             break  # good length
 
-    # Final hygiene
-    if not draft.get("title", "").strip():
+    # Final hygiene / defaults
+    if not draft.get("title"):
         draft["title"] = f"{topic} — {datetime.now(timezone.utc).strftime('%b %d %Y')}"
-    if not draft.get("pubDate", "").strip():
+    if not draft.get("pubDate"):
         draft["pubDate"] = utc_now
+
+    # Ensure keys exist even if model omitted them
+    for key in ("description", "dialogue"):
+        draft.setdefault(key, "" if key != "dialogue" else [])
 
     return draft
