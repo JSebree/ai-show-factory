@@ -51,7 +51,7 @@ def make_script(topic: str) -> dict:
         f"Current UTC date: {utc_now}\n\n"
         "**Goal**: deliver a **natural, engaging 20–25 min episode** (≈ 8000–9500 words).\n"
         "· Pull **≥30 reputable AI/quantum/robotics news items** (≤14 days old).\n"
-        "· Include exactly one short listener Q&A, one real-world case study, one tasteful sponsor read.\n"
+        "· Include exactly one short listener Q&A, one real-world case study.\n"
         "· Hosts Art & Ingrid speak **slightly slower** (stage directions like (pause) allowed).\n"
         "· Organic flow (no pillar labels): intro / breakthroughs → ethics & policy → human impact → futures → wrap.\n"
         "· Insert timestamps MM:SS at topic changes, and light banter between facts.\n"
