@@ -1,87 +1,99 @@
+# llm_writer.py
+
 import os
-import re
 import json
-import openai
+from openai import OpenAI
+from openai_function_calling import fetch_news_from_sheet  # your existing helper
 
-# Load your OpenAI API key
-openai.api_key = os.getenv("OPENAI_API_KEY")
-if not openai.api_key:
-    raise RuntimeError("OPENAI_API_KEY environment variable is not set.")
-
+# Instantiate the new 1.0.0+ client
+client = OpenAI()
 
 def make_script(topic: str) -> dict:
     """
-    Fetch the latest AI news on `topic` from reputable sources (last 30 days),
-    and format as a co-host dialogue JSON using the four-pillar structure.
-
-    Returns:
-        {
-          "title": "<episode title>",
-          "description": "<one-sentence summary>",
-          "pubDate": "<RFC-822 date>",
-          "dialogue": [
-             {"timestamp": "00:00", "speaker": "Host A", "text": "..."},
-             ...
-          ]
-        }
+    Returns a dict with keys:
+      - title
+      - description
+      - pubDate
+      - dialogue: List of {speaker, text} turns covering the Four Pillars
     """
-    # System prompt for voice/personality
-    system_prompt = (
-        "You are NewsCaster, an expert at summarizing the latest AI developments in a friendly, engaging "
-        "co-host podcast format with impeccable host chemistry. Always ground your conversation in facts from "
-        "only reputable news outlets."
+
+    # 1) Gather the most up-to-date news
+    news_items = fetch_news_from_sheet(
+        sheet_id=os.getenv("GSHEET_ID"),
+        days_back=30,
+        sources=[
+            "The New York Times",
+            "Wired",
+            "MIT Technology Review",
+            "BBC News",
+            "Reuters",
+            "Financial Times"
+        ]
     )
 
-    # User prompt with detailed instructions
-    user_prompt = f"""
-1. Read the current episode topic: {topic}
-2. Search for and gather the 5–7 most important news items about this topic published in the last 30 days, only from reputable sources (Reuters, AP, BBC, MIT Technology Review, Wired, The Guardian, NYT, Bloomberg).
-3. For each item, capture the headline, source name, date, and one-sentence fact summary.
-4. Write a 20–25 minute episode script as a dialogue between Host A and Host B, with timestamps and this structure:
-   • 00:00–02:00  Intro & Topic Setup
-   • 02:00–06:00  Pillar 1 (Breakthroughs)
-   • 06:00–11:00  Pillar 2 (Governance & Ethics)
-   • 11:00–17:00  Pillar 3 (Inner Life & Society)
-   • 17:00–21:00  Pillar 4 (Speculative Futures)
-   • 21:00–22:00  Wrap & Tease
-5. Dialogue should be lively, personable, teasing, but fact-focused.
-6. Cite each fact with (Source, YYYY‑MM‑DD).
-7. Output ONLY valid JSON exactly matching this schema (no markdown):
-```json
-{{
-  "title": "...",
-  "description": "...",
-  "pubDate": "...",
-  "dialogue": [
-    {{"timestamp":"00:00","speaker":"Host A","text":"..."}},
-    ...
-  ]
-}}
-```
-"""
+    # 2) System prompt with full requirements
+    system = {
+        "role": "system",
+        "content": (
+            "You are a professional podcast scriptwriter for a two-host show.  \n"
+            "Your job is to craft a 20–25 minute conversational episode about the latest AI news, "
+            "with social and philosophical implications, drawing only from reputable sources "
+            "published in the last 30 days.  \n\n"
 
-    # Call the Chat API
-    response = openai.ChatCompletion.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_prompt},
-        ],
+            "Positioning: Bridge bleeding-edge advances (AI, quantum, neurotech) with ethics & social impact.  \n"
+            "Four Pillars:  \n"
+            "  1. Breakthroughs — concise explainers of top news items.  \n"
+            "  2. Governance & Ethics — policy stakes and moral dimensions.  \n"
+            "  3. Inner Life & Society — psychological/community impact.  \n"
+            "  4. Speculative Futures — economy, philosophy, and what’s next.  \n\n"
+
+            "Format:  \n"
+            "- Two hosts (Host A & Host B), friendly and engaging, with real chemistry.  \n"
+            "- Dialogue style: back-and-forth, with brief banter but clear emphasis on facts.  \n"
+            "- Make tranisitions from section to section smooth and natural.  \n"
+            "- Include approximate timestamps (mm:ss) for each Pillar segment, "
+            "allocating roughly:  \n"
+            "    * Breakthroughs: 5 mins  \n"
+            "    * Governance/Ethics: 5 mins  \n"
+            "    * Inner Life & Society: 5 mins  \n"
+            "    * Speculative Futures: 5 mins  \n"
+            "    * Intros, transitions & wrap: 5–7 mins total.  \n\n"
+
+            "Produce exactly valid JSON with these top-level keys:  \n"
+            "  • title  \n"
+            "  • description  \n"
+            "  • pubDate (RFC-2822)  \n"
+            "  • dialogue (array of objects: {speaker: str, time: \"mm:ss\", text: str})  \n"
+        )
+    }
+
+    # 3) User prompt payload
+    user = {
+        "role": "user",
+        "content": json.dumps({
+            "topic": topic,
+            "news_items": news_items,
+            "hosts": ["Host A", "Host B"]
+        })
+    }
+
+    # 4) Fire the new-chat API
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[system, user],
         temperature=0.7,
-        max_tokens=1500
+        max_tokens=2200
     )
 
-    raw = response.choices[0].message.content.strip()
-    # Remove markdown fences if present
-    cleaned = re.sub(r"^```json\s*|\s*```$", "", raw, flags=re.IGNORECASE)
+    raw = resp.choices[0].message.content
     try:
-        data = json.loads(cleaned)
+        data = json.loads(raw)
     except json.JSONDecodeError:
         raise RuntimeError(f"Failed to parse JSON from LLM:\n{raw}")
 
-    # Validate schema keys
-    for key in ("title", "description", "pubDate", "dialogue"):
-        if key not in data:
-            raise RuntimeError(f"Missing key in LLM output: {key}")
+    # 5) Ensure we got everything
+    required = {"title", "description", "pubDate", "dialogue"}
+    if not required.issubset(data.keys()):
+        raise RuntimeError(f"Incomplete LLM output: {data.keys()}")
 
     return data
