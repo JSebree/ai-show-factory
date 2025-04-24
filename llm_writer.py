@@ -9,7 +9,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 TARGET_MIN   = 8000           # words ≈ 24 min @ ~170 wpm
 TARGET_MAX   = 9500           # ≈ 28 min upper bound
 MAX_ROUNDS   = 4              # expansion / polish loops
-MODEL        = "gpt-4o-mini"
+MODEL        = "gpt-4o"
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ def make_script(topic: str) -> dict:
         "You are head writer for the conversational podcast **Art and Ingrid Discuss A.I.**\n"
         f"Current UTC date: {utc_now}\n\n"
         "**Goal**: deliver a **natural, engaging 20–25 min episode** (≈ 8000–9500 words).\n"
-        "· Pull **≥30 reputable AI/quantum/robotics news items** (≤14 days old).\n"
+        "· Pull **≥30 reputable emerging technology (specifically AI, quantum computing, and robotics) news items** (≤7 days old).\n"
         "· Include exactly one short listener Q&A, one real-world case study.\n"
         "· Hosts Art & Ingrid speak **slightly slower** (stage directions like (pause) allowed).\n"
         "· Organic flow (no pillar labels): intro / breakthroughs → ethics & policy → human impact → futures → wrap.\n"
