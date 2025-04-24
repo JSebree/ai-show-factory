@@ -93,4 +93,20 @@ Return ONLY the JSON object—do not add any extra keys or text."""
     raw = resp.choices[0].message.content
 
     # 4) Strip fences and whitespace
-    cleaned = re.sub(r"^```json\s*|\s
+    #    <-- Notice the properly closed quotes here below!
+    cleaned = re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
+
+    # 5) Parse JSON
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        raise RuntimeError(f"Failed to parse JSON from LLM:\n{raw}")
+
+    # 6) Sanity-check & defaults
+    if not data.get("title", "").strip():
+        data["title"] = f"{topic} — {datetime.now(timezone.utc).strftime('%b %d, %Y')}"
+    for key in ("description", "pubDate", "dialogue"):
+        if key not in data:
+            raise RuntimeError(f"LLM returned missing field: {key}")
+
+    return data
