@@ -59,4 +59,12 @@ Return **only** a single JSON object—no extra prose or Markdown.
     )
 
     # The assistant’s content is guaranteed to be pure JSON
-    return json.loads(response.choices[0].message.content)
+    raw = response.choices[0].message.content.strip()
+    if not raw:
+        raise RuntimeError(f"LLM returned empty response! Full assistant message:\n{response}")
+    try:
+        return json.loads(raw)
+    except Exception as e:
+        # dump the raw so you can see what actually came back
+        raise RuntimeError(f"Failed to parse JSON from LLM:\n{raw}") from e
+
