@@ -85,26 +85,26 @@ if __name__ == "__main__":
     if not (title and description and dialogue):
         raise RuntimeError(f"Incomplete LLM output: {script.keys()}")
 
-    # 2) Render each turn with the proper voice
+    # 2) Render each turn with the proper voice, ElevenLabs comes back as MP3
     segments = []
     for idx, turn in enumerate(dialogue):
-        host = turn.get("speaker", "")
-        text = turn.get("text", "").strip()
+        speaker = turn.get("speaker", "").strip()
+        text    = turn.get("text",    "").strip()
         if not text:
             continue
 
-        # pick voice
-        if host.lower().startswith("host a"):
+        # pick the correct ElevenLabs voice
+        if speaker.lower().startswith("host a"):
             vid = VOICE_A_ID
-        else:
+        elif speaker.lower().startswith("host b"):
             vid = VOICE_B_ID
+        else:
+            raise RuntimeError(f"Unknown speaker “{speaker}”")
 
-        if not vid:
-            raise RuntimeError(f"Missing voice ID for {host}")
-
-        wav_file = f"seg_{idx}.wav"
-        tts(text, wav_file, voice_id=vid)
-        segments.append(AudioSegment.from_file(wav_file, format="wav"))
+        # write out as MP3, then let pydub auto-detect format
+        mp3_path = f"seg_{idx}.mp3"
+        tts(text, mp3_path, voice_id=vid)
+        segments.append(AudioSegment.from_file(mp3_path))
 
     # 3) Concatenate into one MP3
     if not segments:
