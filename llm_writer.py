@@ -1,70 +1,83 @@
 # llm_writer.py
 import os
+import re
 import json
-from openai import OpenAI
+import openai
 
-# Instantiate the v1 client
-client = OpenAI()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def make_script(topic: str) -> dict:
     """
-    Returns a dict with:
-      - title
-      - slug
-      - description
-      - full_script
-      - pubDate
-    as JSON output from the model.
+    Returns a dict with keys:
+      - title (str)
+      - description (str)
+      - pubDate (RFC2822 str)
+      - dialogue (list of {speaker,text})
     """
-    system = (
-        "You are a professional podcast scriptwriter. "
-        "You generate a conversational dialogue between two hosts (\"Host A\" and \"Host B\"). "
-        "Use a friendly, natural back-and-forth style, but stay on topic."
-    )
+    # 1) Define the JSON schema we want
+    json_schema = {
+        "type": "object",
+        "properties": {
+            "title":       {"type": "string"},
+            "description": {"type": "string"},
+            "pubDate":     {"type": "string"},
+            "dialogue": {
+                "type":  "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "speaker": {"type": "string"},
+                        "text":    {"type": "string"}
+                    },
+                    "required": ["speaker", "text"]
+                }
+            }
+        },
+        "required": ["title", "description", "pubDate", "dialogue"]
+    }
 
-    user = f"""
-Topic: {topic}
+    # 2) Build our system + user prompt
+    messages = [
+        {"role": "system", "content":
+            "You are a podcast co-host writer.  Produce a JSON object (no extra keys) as defined by the following schema:"},
+        {"role": "system", "content": json.dumps(json_schema)},
+        {"role": "user", "content":
+            f"""Please write a conversational, two-voice podcast script on this topic:
+**{topic}**
 
-Structure your script like this:
-
-Positioning:
-  Bridge bleeding-edge advances (AI, quantum, neurotech) with ethics & social impact.
-
-• Four Pillars:
+Use this structure:
+- Positioning: Bridge bleeding-edge advances (AI, quantum, neurotech) with ethics & social impact.
+- Four Pillars:
   1. Breakthroughs – concise explainer.
   2. Governance/Ethics – policy stakes.
   3. Inner Life & Society – psychology, community.
   4. Speculative Futures – economy, philosophy.
 
-Write the full dialogue, labeling each turn:
+Return **only** valid JSON (no markdown or commentary)."""}
+    ]
 
-Host A: …
-Host B: …
-
-At the top, supply:
-  Title: a catchy episode title
-  Description: a one-sentence summary
-  PubDate: today’s date in RFC-822 (e.g. “Wed, 24 Apr 2025 12:00:00 GMT”)
-
-Return **only** a single JSON object—no extra prose or Markdown.
-"""
-
-    response = client.chat.completions.create(
+    # 3) Call the new API
+    resp = openai.chat.completions.create(
         model="gpt-4o",
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": user},
-        ],
+        messages=messages,
         temperature=0.7,
+        max_tokens=1000
     )
 
-    # The assistant’s content is guaranteed to be pure JSON
-    raw = response.choices[0].message.content.strip()
-    if not raw:
-        raise RuntimeError(f"LLM returned empty response! Full assistant message:\n{response}")
+    raw = resp.choices[0].message.content
+
+    # 4) Strip any code fences or leading/trailing junk
+    #    e.g. ```json { … } ```
+    cleaned = re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
+
     try:
-        return json.loads(raw)
-    except Exception as e:
-        # dump the raw so you can see what actually came back
+        data = json.loads(cleaned)
+    except json.JSONDecodeError as e:
         raise RuntimeError(f"Failed to parse JSON from LLM:\n{raw}") from e
 
+    # 5) Final sanity check
+    for key in ("title", "description", "pubDate", "dialogue"):
+        if key not in data:
+            raise RuntimeError(f"LLM returned missing field: {key}")
+
+    return data
