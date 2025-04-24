@@ -1,29 +1,30 @@
-# llm_writer.py – iterative expansion to hit 20‑25 min (≈ 7 500–9 000 words)
-import os, re, json
+# llm_writer.py  – auto-expand until dialogue ≥ 3 800 words (~20 min)
+import os
+import re
+import json
 from datetime import datetime, timezone
 import openai
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-TARGET_MIN   = 7500   # ≈ 20 min @ 160‑170 wpm
-TARGET_MAX   = 9000   # stay within model limit
-MAX_ROUNDS   = 6       # expansion / fix‑up attempts
-MODEL        = "gpt-4o-mini"  # adjust if you have quota for gpt‑4o
+# --------------------------- configuration ------------------------------------
+MODEL          = "gpt-4o-mini"   # swap to "gpt-4o" if you have quota
+WORD_TARGET    = 3800
+SAFETY_CAP     = 6               # max expansion rounds
+MAX_TOKENS     = 9000           # plenty of runway
 
-# ─── helpers ────────────────────────────────────────────────────────────────
+# --------------------------- helpers ------------------------------------------
+def _words(dialogue):
+    """Count total words in the dialogue list."""
+    return sum(len(turn["text"].split()) for turn in dialogue)
 
-def _count_words(dialogue):
-    """Return total words in a dialogue list (0 if missing/empty)."""
-    if not isinstance(dialogue, list):
-        return 0
-    return sum(len(turn.get("text", "").split()) for turn in dialogue)
+def _strip_fences(txt: str) -> str:
+    return re.sub(r"^```json\\s*|\\s*```$", "", txt.strip(), flags=re.I)
 
-# ─── main entry ─────────────────────────────────────────────────────────────
-
+# --------------------------- main entry ---------------------------------------
 def make_script(topic: str) -> dict:
-    """Generate a single‑topic episode script for *Art and Ingrid Talk A.I.*"""
+    """Return a JSON script for one episode of *Art and Ingrid Talk A.I.*"""
 
-    # JSON schema
     schema = {
         "type": "object",
         "properties": {
@@ -46,81 +47,71 @@ def make_script(topic: str) -> dict:
         "required": ["title", "description", "pubDate", "dialogue"]
     }
 
-    # System prompt
     utc_now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
     base_system = f"""
-You are the senior writer for **Art and Ingrid Talk A.I.**  
+You are the senior writer for **Art and Ingrid Talk A.I.**
 Current UTC date: {utc_now}
 
-**Goal**: craft a **20–25 minute** (7500–9000‑word) two‑host conversation focused **exclusively** on the topic provided.  
-• Use ≥30 reputable sources (news, X, LinkedIn, YouTube, Reddit) that directly support the topic, prioritizing most recent sources first.  
-• Include: 1 case study, 1 listener Q&A.  
-• Flow naturally—no pillar labels spoken.  
-• Hosts (Art & Ingrid) speak slightly slower (~160 wpm) with natural pauses and chemistry.  
-• Insert approximate timestamps (MM:SS) at logical shifts (~5‑minute blocks).  
+Craft a **20–25-minute** (≥ {WORD_TARGET:,}-word) two-host conversation focused **only** on the topic supplied.
+• Pull ≥30 reputable sources <=7 days old (news, X posts, LinkedIn, YouTube, Reddit) supporting the topic.
+• Weave in 1 case study, 1 listener Q&A, 1 sponsor read. Speak slightly slower (~160 wpm).
+• Flow naturally: breakthroughs → governance/ethics → social/psych impact → speculative futures → wrap.
+• Never announce “Section” or “Pillar” out loud. Add timestamps (MM:SS) at logical shifts (~5-min blocks).
 
-After drafting, **count words**.  
-If **< {TARGET_MIN} words** OR dialogue list is empty, expand with deeper dives, extra examples, anecdotes, or audience Q&A until ≥{TARGET_MIN}.  
-If **> {TARGET_MAX} words**, trim fat.  
-Return exactly one JSON object matching this schema (no markdown fences or commentary):
+After drafting, *count words*. If under {WORD_TARGET:,}, expand with deeper detail, extra anecdotes, longer banter
+and more Q&A until ≥ {WORD_TARGET:,}. Return exactly one JSON object matching this schema:
 {json.dumps(schema, indent=2)}
-"""
+""".strip()
 
-    user_msg = {
-        "role": "user",
-        "content": (
-            "Today’s single topic (limit all research to this):\n\n"
-            f"**{topic}**\n\n"
-            "Return only the JSON object."
-        )
-    }
+    user_prompt = (
+        f"Today’s single topic (restrict all research to this):\n\n**{topic}**\n\n"
+        "Return only the JSON object."
+    )
 
-    draft = {}  # will hold latest attempt
-
-    for round_no in range(1, MAX_ROUNDS + 1):
-        messages = [
-            {"role": "system", "content": base_system},
-            user_msg
-        ]
-
-        # If we already have a draft but it’s too short or empty, feed it back for expansion
-        if draft:
-            words = _count_words(draft.get("dialogue"))
-            if words < TARGET_MIN:
-                messages.extend([
-                    {"role": "assistant", "content": json.dumps(draft)},
-                    {"role": "user", "content": f"Current length ≈{words} words (round {round_no}). Expand to ≥{TARGET_MIN} words and ensure dialogue is populated."}
-                ])
-            else:
-                # Length is OK; stop iterating
-                break
-
+    def call_llm(msgs):
         resp = openai.chat.completions.create(
             model=MODEL,
-            messages=messages,
-            temperature=0.6,
-            max_tokens=9000
+            messages=msgs,
+            temperature=0.7,
+            max_tokens=MAX_TOKENS
         )
-        raw = resp.choices[0].message.content
-        cleaned = re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.I)
-        try:
-            draft = json.loads(cleaned)
-        except json.JSONDecodeError:
-            # Force another round requesting valid JSON
-            draft = {}
-            continue
+        return _strip_fences(resp.choices[0].message.content)
 
-        # Loop back if dialogue empty – treat like <TARGET_MIN
-        if not draft.get("dialogue"):
-            draft["dialogue"] = []
+    # -------------------- first draft ----------------------------------------
+    base_msgs = [
+        {"role": "system", "content": base_system},
+        {"role": "user",   "content": user_prompt}
+    ]
+    cleaned = call_llm(base_msgs)
+    draft = json.loads(cleaned)          # will raise if malformed
 
-    # Final sanity
-    if _count_words(draft.get("dialogue")) < TARGET_MIN:
-        raise RuntimeError("Model failed to generate sufficient dialogue after expansion attempts")
+    # -------------------- iterative expansion --------------------------------
+    for round_no in range(1, SAFETY_CAP + 1):
+        if _words(draft["dialogue"]) >= WORD_TARGET:
+            break  # long enough
 
-    if not draft.get("title"):
+        deficit = WORD_TARGET - _words(draft["dialogue"])
+        expand_msgs = base_msgs + [
+            {"role": "assistant", "content": json.dumps(draft)},
+            {"role": "user",
+             "content": (
+                 f"Current length ≈ {_words(draft['dialogue'])} words "
+                 f"({deficit} short of target). Expand by at least {deficit + 400} words "
+                 "using more detailed examples, additional news references, richer banter, "
+                 "and extended listener Q&A. Return the full updated JSON."
+             )}
+        ]
+        cleaned = call_llm(expand_msgs)
+        draft = json.loads(cleaned)
+
+    # Final guard
+    if _words(draft["dialogue"]) < WORD_TARGET:
+        raise RuntimeError("Script still below word target after expansion rounds.")
+
+    # -------------------- defaults -------------------------------------------
+    if not draft["title"].strip():
         draft["title"] = f"{topic} — {datetime.now(timezone.utc).strftime('%b %d %Y')}"
-    if not draft.get("pubDate"):
+    if not draft["pubDate"].strip():
         draft["pubDate"] = utc_now
 
     return draft
