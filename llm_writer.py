@@ -60,6 +60,10 @@ def make_script(topic: str) -> dict:
             "  • Inner Life & Society: human stories and community impact (~5–6 minutes)\n"
             "  • Speculative Futures: economic and philosophical possibilities (~5–6 minutes)\n\n"
 
+            "STEP 3: Proofreading Phase – Read through the script to ensure that: "
+            "Each fact has a resource to ensure accurate reporting and "
+            "edit any scripted statements that do not align with the gathered resources on the topic.\n\n"
+            
             "Format Guidelines:\n"
             "- Hosts: Art & Ingrid, genuine and engaging, speaking slightly slower for clarity, with personal anecdotes interwoven between facts.\n"
             "- Smooth segues into each theme—never explicitly mention 'pillars'—ensuring transitions feel organic.\n"
