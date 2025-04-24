@@ -10,7 +10,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def make_script(topic: str) -> dict:
     """
-    Generates a two-host, 3000+ word podcast script on the given topic.
+    Generates a two-host, 3000+ word (20–25 minute) podcast script on the given topic.
     Returns a dict with:
       - title       (str)
       - description (str)
