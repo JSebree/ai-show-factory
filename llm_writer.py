@@ -1,25 +1,20 @@
 # llm_writer.py
-import os, json
-import openai
+import os
+import json
+from openai import OpenAI
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Instantiate the v1 client
+client = OpenAI()
 
 def make_script(topic: str) -> dict:
     """
-    Returns a JSON dict with keys:
+    Returns a dict with:
       - title
       - slug
       - description
-      - full_script   (the full dialogue)
-      - pubDate       (RFC-822 date string)
-    The script is written as a dialogue between two co-hosts:
-      Host A and Host B.
-    It follows this structure:
-      Positioning + the Four Pillars:
-        1. Breakthroughs
-        2. Governance/Ethics
-        3. Inner Life & Society
-        4. Speculative Futures
+      - full_script
+      - pubDate
+    as JSON output from the model.
     """
     system = (
         "You are a professional podcast scriptwriter. "
@@ -49,20 +44,19 @@ Host B: …
 At the top, supply:
   Title: a catchy episode title
   Description: a one-sentence summary
-  PubDate: today’s date in RFC-822 (e.g. “Wed, 23 Apr 2025 12:00:00 GMT”)
+  PubDate: today’s date in RFC-822 (e.g. “Wed, 24 Apr 2025 12:00:00 GMT”)
 
-Return your entire response as a single JSON object. Do NOT wrap it in Markdown or any extra text.
+Return **only** a single JSON object—no extra prose or Markdown.
 """
 
-    res = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system",  "content": system},
-            {"role": "user",    "content": user},
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user},
         ],
         temperature=0.7,
     )
 
-    # the assistant message is pure JSON
-    return json.loads(res.choices[0].message.content)
-
+    # The assistant’s content is guaranteed to be pure JSON
+    return json.loads(response.choices[0].message.content)
