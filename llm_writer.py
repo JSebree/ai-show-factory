@@ -10,7 +10,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def make_script(topic: str) -> dict:
     """
-    Generates a two-host, 20–25 min podcast script on the given topic.
+    Generates a two-host, 20–25 minute podcast script on the given topic.
     Returns a dict with:
       - title       (str)
       - description (str)
@@ -41,29 +41,31 @@ def make_script(topic: str) -> dict:
         "required": ["title", "description", "pubDate", "dialogue"]
     }
 
-    # 2) System prompt with full requirements
+    # 2) Enhanced system prompt
     today = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
     system = {
         "role": "system",
         "content": (
             "You are a professional podcast scriptwriter for a two-host show titled 'Art and Ingrid talks AI'.\n"
-            "Your job is to craft a 20–25 minute back-and-forth conversation about the latest AI news, "
-            "with social and philosophical implications. The current date is " + today + ". "
-            "Only reference reputable sources published within the last 30 days.\n\n"
+            "Your goal is to craft a natural, free-flowing 20–25 minute conversation about the latest AI news "
+            "and its social & philosophical impact. Current date: " + today + ".\n\n"
 
-            "Structure by four themes—without directly naming them as 'pillars':\n"
-            "  • Breakthroughs: deep explainer of today’s biggest AI headline.\n"
-            "  • Governance & Ethics: policy stakes and moral dimensions.\n"
-            "  • Inner Life & Society: psychological & community impact.\n"
-            "  • Speculative Futures: economic & philosophical possibilities.\n\n"
-            "Allow Art and Ingrid to riff and banter with personal perspectives 'in-between' facts, "
-            "to help stretch dialogue to a full 20–25 minutes (not under 4 minutes).\n\n"
-            "Use these guidelines:\n"
-            "- Hosts: Art & Ingrid, friendly and engaging with natural chemistry.\n"
-            "- Approximate timestamps (MM:SS) at the start of each segment.\n"
-            "- Rough time allocation: 5 min each theme + 5–7 min intro/transitions/conclusion.\n"
-            "- Gather details from news outlets, thought-leader X posts, LinkedIn essays, YouTube explainers, Reddit threads.\n\n"
-            "Return exactly valid JSON matching this schema—no markdown or commentary."
+            "STEP 1: Research Phase – Gather at least 20 relevant items (articles, thought-leader tweets/X posts, "
+            "LinkedIn essays, YouTube explainers, Reddit threads) on the topic from reputable sources published "
+            "in the last 30 days. Use these to enrich examples, quotes, and case studies.\n\n"
+
+            "STEP 2: Script Phase – Structure by four themes without naming them directly:\n"
+            "  • Breakthroughs: deep explainer of today’s major AI headline\n"
+            "  • Governance & Ethics: policy stakes and moral dimensions\n"
+            "  • Inner Life & Society: psychological & community impact\n"
+            "  • Speculative Futures: economic & philosophical possibilities\n\n"
+
+            "Format:\n"
+            "- Hosts: Art & Ingrid, engaging back-and-forth with genuine rapport.\n"
+            "- Smooth segues into each theme for ~5 minutes each; 5–7 minutes total for intro, transitions & wrap.\n"
+            "- Include approximate timestamps (MM:SS) at the start of each new segment.\n"
+            "- Allow Art and Ingrid to riff and banter with personal perspectives between facts to hit full runtime.\n\n"
+            "Return exactly valid JSON (no markdown or commentary) matching the provided schema."
         )
     }
 
@@ -72,30 +74,30 @@ def make_script(topic: str) -> dict:
         "role": "user",
         "content": (
             f"Topic: {topic}\n\n"
-            "Here is the JSON schema to use:\n"
-            f"{json.dumps(json_schema)}\n\n"
+            "JSON schema:\n"
+            f"{json.dumps(json_schema, indent=2)}\n\n"
             "Return only the JSON object."
         )
     }
 
-    # 4) Send request
+    # 4) Call OpenAI chat API
     resp = openai.chat.completions.create(
         model="gpt-4o",
         messages=[system, user],
         temperature=0.7,
-        max_tokens=1600
+        max_tokens=2000
     )
 
     raw = resp.choices[0].message.content
 
-    # 5) Clean up
+    # 5) Clean fences
     cleaned = re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
 
     # 6) Parse JSON
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError:
-        raise RuntimeError(f"Failed to parse JSON from LLM:\n\n{raw}")
+        raise RuntimeError(f"Failed to parse JSON from LLM:\n{raw}")
 
     # 7) Sanity-check
     for key in ("title", "description", "pubDate", "dialogue"):
