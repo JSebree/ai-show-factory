@@ -1,136 +1,108 @@
-# llm_writer.py  – robust “retry-until-valid” + auto-expansion
+# llm_writer.py – full replacement
 import os, re, json
 from datetime import datetime, timezone
 import openai
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-MODEL        = "gpt-4o-mini"      # or "gpt-4o"
-WORD_TARGET  = 3800              # ≈ 20 min
-MAX_ROUNDS   = 6                  # expansion passes
-RETRY_LIMIT  = 3                  # regenerate if schema incomplete
-MAX_TOKENS   = 9000
+# ─── Runtime targets ─────────────────────────────────────────────────────────
+TARGET_MIN   = 7500          # words ≈ 22 min @ ~170–180 wpm
+TARGET_MAX   = 9000          # soft ceiling (~26 min)
+MAX_ROUNDS   = 4             # up‑to four passes of self‑expansion
+MODEL        = "gpt-4o-mini" # or "gpt-4o" if you have quota
 
-schema = {
-    "type": "object",
-    "properties": {
-        "title": {"type": "string"},
-        "description": {"type": "string"},
-        "pubDate": {"type": "string"},
-        "dialogue": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "speaker": {"type": "string"},
-                    "time":    {"type": "string"},
-                    "text":    {"type": "string"}
-                },
-                "required": ["speaker", "time", "text"]
-            }
-        }
-    },
-    "required": ["title", "description", "pubDate", "dialogue"]
-}
+# ─── Helper ──────────────────────────────────────────────────────────────────
 
-# ---------- helpers -----------------------------------------------------------
-def _strip(txt: str) -> str:
-    return re.sub(r"^```json\s*|\s*```$", "", txt.strip(), flags=re.I)
+def dialogue_wordcount(dlg):
+    """Total words across all dialogue text."""
+    return sum(len(turn["text"].split()) for turn in dlg)
 
-def _n_words(dialogue) -> int:
-    return sum(len(turn["text"].split()) for turn in dialogue)
+# ─── Main function ───────────────────────────────────────────────────────────
 
-def _call(messages):
-    resp = openai.chat.completions.create(
-        model=MODEL, messages=messages, temperature=0.7, max_tokens=MAX_TOKENS
-    )
-    return _strip(resp.choices[0].message.content)
-
-def _valid(data: dict) -> bool:
-    return all(k in data for k in ("title", "description", "pubDate", "dialogue"))
-
-# ---------- main --------------------------------------------------------------
 def make_script(topic: str) -> dict:
-    now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    """Generate a ≥7500‑word, 20–25 min podcast script for Art & Ingrid."""
 
-    base_system = f"""
-You are the senior writer for **Art and Ingrid Talk A.I.**
-Current UTC date: {now}
-
-Craft a **20–25-minute** (≥{WORD_TARGET}-word) two-host script (Art & Ingrid) on the single topic provided.
-• Use ≥30 reputable sources ≤7 days old (news, X, LinkedIn, YouTube, Reddit).
-• Include 1 case study, listener Q&A, sponsor read.
-• Smooth flow: breakthroughs → ethics → social impact → speculative futures → wrap (no labels aloud).
-• Add timestamps MM:SS at logical transitions (~5-min blocks).
-• After drafting, count words; if below {WORD_TARGET}, expand with more depth/banter until ≥ {WORD_TARGET}.
-Return exactly one JSON object that matches this schema:
-{json.dumps(schema, indent=2)}
-""".strip()
-
-    user_prompt = {
-        "role": "user",
-        "content": f"Today’s topic (all research must support this):\n\n**{topic}**\n\nReturn only the JSON."
+    schema = {
+        "type": "object",
+        "properties": {
+            "title":       {"type": "string"},
+            "description": {"type": "string"},
+            "pubDate":     {"type": "string"},
+            "dialogue": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "speaker": {"type": "string"},
+                        "time":    {"type": "string"},
+                        "text":    {"type": "string"}
+                    },
+                    "required": ["speaker", "time", "text"]
+                }
+            }
+        },
+        "required": ["title", "description", "pubDate", "dialogue"]
     }
 
-    base_msgs = [
-        {"role": "system", "content": base_system},
-        user_prompt
-    ]
+    def base_system_prompt():
+        utc_now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+        return (
+            "You are the senior scriptwriter of the show **Art and Ingrid Talk A.I.**\n"
+            f"UTC date: {utc_now}\n\n"
+            "Write a **20–25 minute** (≈ 7500–9000‑word) two‑host conversation.\n"
+            "Requirements: • 30+ reputable AI news items (≤7 days old) • 1 listener Q&A • 1 sponsor read • 1 short case study.\n"
+            "Hosts Art & Ingrid banter, speak a little slower, keep transitions natural (never name pillars).\n"
+            "Implicit flow: intro/breakthroughs → ethics/policy → societal impact → speculative futures → wrap.\n"
+            "Insert timestamps (MM:SS) at major topic changes.\n\n"
+            "Return exactly one JSON object that matches this schema:\n" + json.dumps(schema, indent=2)
+        )
 
-    # 1) first draft with retries until schema complete ------------------------
-    cleaned = None
-    for attempt in range(1, RETRY_LIMIT + 1):
-        try:
-            cleaned = _call(base_msgs)
-            draft = json.loads(cleaned)
-            if _valid(draft):
-                break
-        except json.JSONDecodeError:
-            pass  # fall through to retry
-        # Ask the model to regenerate with explicit reminder
-        base_msgs.append({
-            "role": "assistant",
-            "content": cleaned or "(no valid JSON returned)"
-        })
-        base_msgs.append({
-            "role": "user",
-            "content":
-                "Your last answer was incomplete or invalid JSON. "
-                "Please regenerate **full valid JSON** including all required keys."
-        })
-    else:
-        raise RuntimeError("Model failed to supply valid JSON with all keys after retries.")
+    user_msg = {
+        "role": "user",
+        "content": f"Today’s umbrella topic:\n\n**{topic}**\n\nReturn only the JSON object."
+    }
 
-    # 2) iterative expansion to hit word target --------------------------------
-    for rnd in range(1, MAX_ROUNDS + 1):
-        if _n_words(draft["dialogue"]) >= WORD_TARGET:
-            break
-        deficit = WORD_TARGET - _n_words(draft["dialogue"])
-        expand_msgs = [
-            {"role": "system", "content": base_system},
-            {"role": "assistant", "content": json.dumps(draft)},
-            {"role": "user",
-             "content": (
-                 f"Current length ≈ {_n_words(draft['dialogue'])} words; "
-                 f"need ≥ {WORD_TARGET}. Add at least {deficit + 400} words "
-                 "with more details, examples, Q&A, and discussion. Return full JSON."
-             )}
+    draft = None
+    for attempt in range(1, MAX_ROUNDS + 1):
+        msgs = [
+            {"role": "system", "content": base_system_prompt()},
+            user_msg
         ]
-        cleaned = _call(expand_msgs)
+
+        if draft:
+            wc = dialogue_wordcount(draft["dialogue"])
+            msgs.append({"role": "assistant", "content": json.dumps(draft)})
+            msgs.append({
+                "role": "user",
+                "content": (
+                    f"Current script ≈{wc} words (target ≥{TARGET_MIN}). "
+                    "Expand it—add deeper analysis, extra anecdotes, more listener Q&A, "
+                    "and additional credible news references—until total words lie between "
+                    f"{TARGET_MIN} and {TARGET_MAX}. Return the full updated JSON."
+                )
+            })
+
+        resp = openai.chat.completions.create(
+            model       = MODEL,
+            messages    = msgs,
+            temperature = 0.6,
+            max_tokens  = 9500
+        )
+
+        raw = resp.choices[0].message.content
+        cleaned = re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.I)
         try:
             draft = json.loads(cleaned)
-            if not _valid(draft):
-                raise ValueError
-        except Exception:
-            raise RuntimeError("Expansion round yielded invalid JSON; aborting.")
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Bad JSON (round {attempt}):\n{raw[:500]}…")
 
-    if _n_words(draft["dialogue"]) < WORD_TARGET:
-        raise RuntimeError("Model failed to generate sufficient dialogue after expansion attempts")
+        if TARGET_MIN <= dialogue_wordcount(draft["dialogue"]) <= TARGET_MAX:
+            break  # good length
 
-    # 3) default fillers -------------------------------------------------------
-    if not draft["title"].strip():
+    # Fallbacks
+    utc_now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    draft.setdefault("pubDate", utc_now)
+    if not draft.get("title", "").strip():
         draft["title"] = f"{topic} — {datetime.now(timezone.utc).strftime('%b %d %Y')}"
-    if not draft["pubDate"].strip():
-        draft["pubDate"] = now
 
     return draft
