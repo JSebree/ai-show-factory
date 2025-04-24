@@ -10,7 +10,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def make_script(topic: str) -> dict:
     """
-    Generates a two-host, 20–25 minute podcast script on the given topic.
+    Generates a two-host, 4000+ word podcast script on the given topic.
     Returns a dict with:
       - title       (str)
       - description (str)
@@ -47,7 +47,7 @@ def make_script(topic: str) -> dict:
         "role": "system",
         "content": (
             "You are a professional podcast scriptwriter for a two-host show titled 'Art and Ingrid talks AI'.\n"
-            "Your goal is to craft a natural, free-flowing 20–25 minute, 3000+ word conversation about the latest AI news "
+            "Your goal is to craft a natural, free-flowing 20–25 minute, 4000+ word conversation about the latest AI news "
             "and its social & philosophical implications. Current date: " + today + ".\n\n"
 
             "STEP 1: Research Phase – Gather at least 30 relevant items (articles, thought-leader X posts, "
@@ -64,7 +64,7 @@ def make_script(topic: str) -> dict:
             "- Hosts: Art & Ingrid, genuine and engaging, speaking slightly slower for clarity, with personal anecdotes interwoven between facts.\n"
             "- Smooth segues into each theme—never explicitly mention 'pillars'—ensuring transitions feel organic.\n"
             "- Include approximate timestamps (MM:SS) at the start of each new segment.\n"
-            "- Dialogue must total at least 3000 words to meet the 20–25 minute runtime.\n\n"
+            "- Dialogue must total at least 4000 words to meet the 20–25 minute runtime.\n\n"
             "Return exactly valid JSON (no markdown, no commentary) matching the provided schema."
         )
     }
