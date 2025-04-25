@@ -1,4 +1,4 @@
-# llm_writer.py – conversational iterative version with per‑news 4‑lens flow
+# llm_writer.py – conversational iterative version with per‑news 4‑lens flow and robust key checks
 import os, re, json
 from datetime import datetime, timezone
 import openai
@@ -58,7 +58,7 @@ def make_script(topic: str) -> dict:
         "• Natural segues + light banter (~10 s) between items.\n"
         "• Include exactly one listener Q&A, one 60‑s case study, one brief sponsor read.\n"
         "• Insert timestamps (MM:SS) at the first line for each new news item.\n"
-        "• After drafting, self‑review length & flow; expand/trim until word‑count within target, no repetition.\n\n"
+        "• After drafting, self‑review length & flow; expand/trim until word‑count within target, no repetition, all required keys present.\n\n"
         "Return a single JSON object matching this schema exactly (no markdown):\n"
         + json.dumps(schema, indent=2)
     )
@@ -78,17 +78,16 @@ def make_script(topic: str) -> dict:
             user_prompt
         ]
 
+        # If we already have a draft, ask for expansion / fixes
         if draft is not None:
             words_now = wc(draft.get("dialogue", []))
             messages.append({"role": "assistant", "content": json.dumps(draft)})
             messages.append({
                 "role": "user",
                 "content": (
-                    f"Current draft ≈ {words_now} words. "
-                    f"Target range {TARGET_MIN}–{TARGET_MAX}. "
-                    "Expand with additional news, anecdotes, slower banter, smooth segues, "
-                    "and ensure each news item follows the 4‑lens conversational cycle. "
-                    "Return the complete revised JSON."
+                    f"Current draft ≈ {words_now} words. Target {TARGET_MIN}–{TARGET_MAX}.\n"
+                    "Expand with additional news items, slower banter, deeper analysis, and ensure the JSON contains the keys:"
+                    " title, description, pubDate, dialogue (non‑empty). Return the full revised JSON."
                 )
             })
 
@@ -103,12 +102,19 @@ def make_script(topic: str) -> dict:
         try:
             draft = json.loads(cleaned)
         except json.JSONDecodeError:
-            # If JSON invalid, request regeneration next round
             draft = {}
-        if TARGET_MIN <= wc(draft.get("dialogue", [])) <= TARGET_MAX:
-            break
 
-    # Add defaults / safety
+        # --- validation ----------------------------------------------------
+        missing_keys = [k for k in ("title", "description", "pubDate", "dialogue") if k not in draft]
+        if missing_keys:
+            continue  # request another round
+        if not isinstance(draft["dialogue"], list) or not draft["dialogue"]:
+            continue  # invalid dialogue, regenerate
+        words = wc(draft["dialogue"])
+        if TARGET_MIN <= words <= TARGET_MAX:
+            break  # success
+
+    # Final sanity defaults ---------------------------------------------------
     draft.setdefault("pubDate", utc_now)
     if not draft.get("title", "").strip():
         draft["title"] = f"{topic} — {datetime.now(timezone.utc).strftime('%b %d %Y')}"
