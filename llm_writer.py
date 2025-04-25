@@ -60,6 +60,7 @@ def make_script(topic: str) -> dict:
         "  a) Ensure dialogue > 8000 words, < 9500 words.\n"
         "  b) Check flow, trim repetition, add connective banter where stiff.\n"
         "  c) Verify no pillar labels, smooth segues, slower pacing cues.\n"
+        "  d) Verify that hosts don't begin wrapping up until the very end of the podcast.\n"
         "If any criteria fail, revise before returning.\n\n"
         "JSON schema:\n" + json.dumps(schema, indent=2)
     )
